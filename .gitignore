@@ -12,3 +12,4 @@ wheels/
 # Runtime data
 *.db
 uploads/
+.env
