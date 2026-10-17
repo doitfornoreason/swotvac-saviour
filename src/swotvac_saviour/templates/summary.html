@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block title %}Session summary{% endblock %}
+{% block content %}
+<h1>Session summary</h1>
+<p>
+  session {{ s.id }} &middot; seed {{ s.seed }} &middot; started {{ s.created_at }}
+  {% if s.finished %} &middot; finished {{ s.finished }}{% else %} &middot; still running{% endif %}
+</p>
+<p>Known: {{ s.known }} &middot; Retry: {{ s.retry }}</p>
+{% if s.by_section %}
+<h2>By section</h2>
+<ul>
+  {% for section, result, n in s.by_section %}
+    <li>{{ section or "(no section)" }}: {{ result }} {{ n }}</li>
+  {% endfor %}
+</ul>
+{% endif %}
+<form method="post" action="/sessions">
+  <input type="hidden" name="retry_of" value="{{ s.id }}">
+  <button type="submit" {% if s.retry == 0 %}disabled{% endif %}>Practice the {{ s.retry }} missed questions again</button>
+</form>
+<p><a href="/stats">All sessions and accuracy</a></p>
+<p><a href="/play">New session</a></p>
+{% endblock %}

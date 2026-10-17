@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Documents</h1>
+{% for d in documents %}
+  <article>
+    <h2>{{ d.filename }}</h2>
+    <p>
+      <span>{{ d.question_count }} questions</span>
+      <span>sha256 {{ d.sha256[:12] }}...</span>
+      <span>uploaded {{ d.uploaded_at }}</span>
+    </p>
+    <p>
+      Tags:
+      {% if d.tags %}{{ d.tags | join(", ") }}{% else %}<em>none</em>{% endif %}
+    </p>
+    <a href="/documents/{{ d.id }}/review">Review extraction</a>
+  </article>
+{% else %}
+  <p>No documents yet. <a href="/upload">Upload a question PDF</a>.</p>
+{% endfor %}
+{% endblock %}

@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block title %}{{ tag }} - questions{% endblock %}
+{% block content %}
+<h1>Questions tagged "{{ tag }}"</h1>
+{% for q in questions %}
+  <article>
+    <h2>{{ q.label }} <small>{{ q.document }} &middot; page {{ q.page_number }}</small></h2>
+    <p>{{ q.section }}<br><code>{{ q.body_latex }}</code></p>
+    {% if q.hint %}<p><strong>Hint:</strong> {{ q.hint }}</p>{% endif %}
+    <a href="/documents/{{ q.document_id }}/review">source document</a>
+  </article>
+{% else %}
+  <p>No questions under this tag.</p>
+{% endfor %}
+{% endblock %}

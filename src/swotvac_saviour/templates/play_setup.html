@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block title %}Play{% endblock %}
+{% block content %}
+<h1>Start a practice session</h1>
+<form method="post" action="/sessions" hx-post="/sessions" hx-swap="none" hx-disabled-elt="this">
+  <fieldset>
+    <legend>Subjects (questions from all selected tags are shuffled together)</legend>
+    {% for t in tags %}
+      <label><input type="checkbox" name="tags" value="{{ t.id }}"> {{ t.name }}</label>
+    {% else %}
+      <p><em>No tags yet. Upload a document and tag it first.</em></p>
+    {% endfor %}
+  </fieldset>
+  <button type="submit">Start</button>
+</form>
+<p><small>Session runs until you stop it. Deck is re-shuffled each session with a fresh seed.</small></p>
+{% endblock %}

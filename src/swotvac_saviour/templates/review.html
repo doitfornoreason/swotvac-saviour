@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% block title %}{{ doc.filename }} - review{% endblock %}
+{% block content %}
+<h1>Extraction review: {{ doc.filename }}</h1>
+{% if outcome %}<p class="notice">Outcome: {{ outcome }}</p>{% endif %}
+<p>
+  sha256 {{ doc.sha256[:12] }}... &middot; {{ questions | length }} questions
+  &middot; {{ warned }} with warnings
+</p>
+
+<section>
+  <h2>Tags</h2>
+  <div id="tag-list" hx-target="this" hx-swap="outerHTML">
+    {% include "tags_list.html" %}
+  </div>
+  <form hx-post="/documents/{{ doc.id }}/tags" hx-target="#tag-list" hx-swap="outerHTML">
+    <input type="text" name="tag_name" placeholder="new tag name" required>
+    <button type="submit">Add tag</button>
+  </form>
+</section>
+
+<section>
+  <h2>Re-import</h2>
+  <form method="post" action="/documents/{{ doc.id }}/reimport">
+    <label>Style
+      <select name="style">
+        {% for s in styles %}<option value="{{ s }}">{{ s }}</option>{% endfor %}
+      </select>
+    </label>
+    <button type="submit">Re-import with this style</button>
+  </form>
+</section>
+
+<section>
+  <h2>Questions</h2>
+  {% for q in questions %}
+    <details>
+      <summary>
+        {{ q.label }}
+        {% if q.section %}&middot; {{ q.section }}{% endif %}
+        &middot; page {{ q.page_number }}
+        {% if q.warnings %}&middot; <mark>{{ q.warnings | length }} warning(s)</mark>{% endif %}
+      </summary>
+      <pre>{{ q.body }}</pre>
+      {% if q.hint %}<p><strong>Hint:</strong> {{ q.hint }}</p>{% endif %}
+      {% if q.warnings %}<ul>{% for w in q.warnings %}<li>{{ w }}</li>{% endfor %}</ul>{% endif %}
+    </details>
+  {% else %}
+    <p>No questions extracted.</p>
+  {% endfor %}
+</section>
+{% endblock %}

@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block title %}Stats{% endblock %}
+{% block content %}
+<h1>Accuracy by tag</h1>
+<table>
+  <thead><tr><th>Tag</th><th>Known</th><th>Retry</th><th>Accuracy</th></tr></thead>
+  <tbody>
+  {% for t in tags %}
+    <tr><td>{{ t.name }}</td><td>{{ t.known }}</td><td>{{ t.retry }}</td><td>{{ t.accuracy }}</td></tr>
+  {% else %}
+    <tr><td colspan="4"><em>No answered questions yet.</em></td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+
+<h1>Sessions</h1>
+<ul>
+{% for s in sessions %}
+  <li>
+    <a href="/sessions/{{ s.id }}/summary">session {{ s.id }}</a>
+    &middot; {{ s.created_at }} &middot; known {{ s.known }} / retry {{ s.retry }}
+    {% if s.finished %}(finished){% else %}(running){% endif %}
+  </li>
+{% else %}
+  <li><em>No sessions yet. <a href="/play">Start one</a>.</em></li>
+{% endfor %}
+</ul>
+{% endblock %}
