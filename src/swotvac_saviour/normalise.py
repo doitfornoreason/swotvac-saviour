@@ -260,12 +260,53 @@ def _balanced_end(text: str, i: int) -> int:
 
 @lru_cache(maxsize=2048)
 def latex_segments(body_latex: str) -> list[tuple[str, str]]:
-    """Split a body_latex blob into ("prose"|"math", text) runs.
+    """Split a body_latex blob into ("prose"|"math"|"display", text) runs.
 
-    Prose renders as plain HTML (wraps naturally, never overflows), math as
-    individual KaTeX spans. Escaped underscores (\\_) in math runs are restored
-    so KaTeX renders real subscripts.
+    The LLM delimits math with $...$ (inline) or $$...$$ (display): prose
+    outside delimiters renders as plain HTML, math goes to KaTeX. Blobs
+    without any $ (legacy deterministic rows) fall back to the control-word
+    heuristic below so they still render their math fragments.
     """
+    if "$" not in body_latex:
+        return _legacy_segments(body_latex)
+
+    segments: list[tuple[str, str]] = []
+    prose: list[str] = []
+    i = 0
+    n = len(body_latex)
+
+    def flush() -> None:
+        if prose:
+            segments.append(("prose", "".join(prose)))
+            prose.clear()
+
+    while i < n:
+        c = body_latex[i]
+        if c == "$":
+            flush()
+            if i + 1 < n and body_latex[i + 1] == "$":
+                end = body_latex.find("$$", i + 2)
+                if end == -1:
+                    segments.append(("display", body_latex[i + 2:]))
+                    return segments
+                segments.append(("display", body_latex[i + 2:end]))
+                i = end + 2
+            else:
+                end = body_latex.find("$", i + 1)
+                if end == -1:
+                    segments.append(("math", body_latex[i + 1:]))
+                    return segments
+                segments.append(("math", body_latex[i + 1:end]))
+                i = end + 1
+        else:
+            prose.append(c)
+            i += 1
+    flush()
+    return segments
+
+
+def _legacy_segments(body_latex: str) -> list[tuple[str, str]]:
+    """Pre-$ heuristic: control words and ^{...} superscripts are math, rest prose."""
     segments: list[tuple[str, str]] = []
     prose: list[str] = []
     i = 0

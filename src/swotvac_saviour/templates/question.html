@@ -1,30 +1,29 @@
 {% extends "base.html" %}
 {% block title %}{{ q.label }} - swotvac-saviour{% endblock %}
 {% block content %}
-<h1>{{ q.label }}</h1>
 <div class="play-meta">
+  <span>{{ q.label }}</span>
   <span class="source-badge">
     <button type="button" data-source-url="/documents/{{ q.document_id }}/page/{{ q.page_number }}"
             aria-expanded="false" aria-label="Show source page">{{ q.document }} &middot; page {{ q.page_number }}</button>
     <img class="source-popover" alt="source page {{ q.page_number }}" hidden>
   </span>
-  {% if q.section %}<span>{{ q.section }}</span>{% endif %}
-  <span>{{ "attempted" if q.attempted else "not attempted" }}</span>
-  <span>{{ "marked" if q.marked else "unmarked" }}</span>
-  <span>{{ "flagged" if q.flagged else "not flagged" }}</span>
 </div>
+{% if q.section %}<p class="notice">{{ q.section }}</p>{% endif %}
 
 <article class="question-body">
   {% for kind, text in q.segments %}
     {% if kind == "prose" %}{{ text }}{% else %}<span class="katex-inline">{{ text }}</span>{% endif %}
   {% endfor %}
-  {% if q.hint %}<p><strong>Hint:</strong> {{ q.hint }}</p>{% endif %}
+  {% if q.hint %}<p class="hint">Hint: {{ q.hint }}</p>{% endif %}
 </article>
 
-<details>
-  <summary>Solution</summary>
-  <p class="notice">no solutions - feature not added yet</p>
-</details>
+<div class="solution">
+  <details>
+    <summary>Show solution</summary>
+    <p class="notice">no solutions - feature not added yet</p>
+  </details>
+</div>
 
 <details>
   <summary>Warnings</summary>
@@ -38,26 +37,19 @@
 </details>
 
 <div class="actions">
-  <span class="play-meta">
+  <span class="state-toggles">
+    {% for field in ["attempted", "marked", "flagged"] %}
+    {% set on = q[field] %}
     <form method="post" action="/questions/{{ q.id }}/state" class="action-form">
-      <input type="hidden" name="field" value="attempted">
-      <input type="hidden" name="value" value="{{ 0 if q.attempted else 1 }}">
+      <input type="hidden" name="field" value="{{ field }}">
+      <input type="hidden" name="value" value="{{ 0 if on else 1 }}">
       <input type="hidden" name="next" value="/browse">
-      <button type="submit" class="btn-ghost">{{ "unmark attempted" if q.attempted else "mark attempted" }}</button>
+      <button type="submit" class="btn-ghost state-btn" aria-pressed="{{ 'true' if on else 'false' }}">
+        {{ "un-" ~ field if on else field }}
+      </button>
     </form>
-    <form method="post" action="/questions/{{ q.id }}/state" class="action-form">
-      <input type="hidden" name="field" value="marked">
-      <input type="hidden" name="value" value="{{ 0 if q.marked else 1 }}">
-      <input type="hidden" name="next" value="/browse">
-      <button type="submit" class="btn-ghost">{{ "unmark" if q.marked else "mark" }}</button>
-    </form>
-    <form method="post" action="/questions/{{ q.id }}/state" class="action-form">
-      <input type="hidden" name="field" value="flagged">
-      <input type="hidden" name="value" value="{{ 0 if q.flagged else 1 }}">
-      <input type="hidden" name="next" value="/browse">
-      <button type="submit" class="btn-ghost">{{ "unflag" if q.flagged else "flag" }}</button>
-    </form>
+    {% endfor %}
   </span>
 </div>
-<p><a href="/browse">Back to browse</a></p>
+<p><a href="/browse">&larr; Back to browse</a></p>
 {% endblock %}

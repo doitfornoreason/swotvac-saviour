@@ -2,7 +2,7 @@
 {% block title %}Play - swotvac-saviour{% endblock %}
 {% block content %}
 <div class="play-meta">
-  <span>{{ q.answered }} done &middot; {{ q.position + 1 }} of {{ q.total }} now</span>
+  <span class="progress">{{ q.answered }} done &middot; {{ q.position + 1 }} of {{ q.total }}</span>
   {% if q.section %}<span>{{ q.section }}</span>{% endif %}
   <span class="source-badge">
     <button type="button" data-source-url="/documents/{{ q.document_id }}/page/{{ q.page_number }}"
@@ -15,13 +15,15 @@
   {% for kind, text in q.segments %}
     {% if kind == "prose" %}{{ text }}{% else %}<span class="katex-inline">{{ text }}</span>{% endif %}
   {% endfor %}
-  {% if q.hint %}<p><strong>Hint:</strong> {{ q.hint }}</p>{% endif %}
+  {% if q.hint %}<p class="hint">Hint: {{ q.hint }}</p>{% endif %}
 </article>
 
-<details>
-  <summary>Solution</summary>
-  <p class="notice">no solutions - feature not added yet</p>
-</details>
+<div class="solution">
+  <details>
+    <summary>Show solution</summary>
+    <p class="notice">no solutions - feature not added yet</p>
+  </details>
+</div>
 
 <div class="actions">
   <form method="post" action="/play/answer" class="action-form">
@@ -31,24 +33,28 @@
   <form method="post" action="/play/reshuffle" class="action-form">
     <button type="submit" class="btn-secondary" data-shortcut="q">Reshuffle</button>
   </form>
-  <span class="play-meta">
+
+  <span class="state-toggles">
     <form method="post" action="/questions/{{ q.question_id }}/state" class="action-form">
       <input type="hidden" name="field" value="attempted">
       <input type="hidden" name="value" value="{{ 0 if q.state.attempted else 1 }}">
       <input type="hidden" name="next" value="/play">
-      <button type="submit" class="btn-ghost">{{ "attempted" if q.state.attempted else "mark attempted" }}</button>
+      <button type="submit" class="btn-ghost state-btn" aria-pressed="{{ 'true' if q.state.attempted else 'false' }}"
+              title="Mark as attempted">{{ "attempted" if q.state.attempted else "attempt" }}</button>
     </form>
     <form method="post" action="/questions/{{ q.question_id }}/state" class="action-form">
       <input type="hidden" name="field" value="marked">
       <input type="hidden" name="value" value="{{ 0 if q.state.marked else 1 }}">
       <input type="hidden" name="next" value="/play">
-      <button type="submit" class="btn-ghost">{{ "marked" if q.state.marked else "mark" }}</button>
+      <button type="submit" class="btn-ghost state-btn" aria-pressed="{{ 'true' if q.state.marked else 'false' }}"
+              title="Mark for later">{{ "marked" if q.state.marked else "mark" }}</button>
     </form>
     <form method="post" action="/questions/{{ q.question_id }}/state" class="action-form">
       <input type="hidden" name="field" value="flagged">
       <input type="hidden" name="value" value="{{ 0 if q.state.flagged else 1 }}">
       <input type="hidden" name="next" value="/play">
-      <button type="submit" class="btn-ghost">{{ "flagged" if q.state.flagged else "flag" }}</button>
+      <button type="submit" class="btn-ghost state-btn" aria-pressed="{{ 'true' if q.state.flagged else 'false' }}"
+              title="Flag for review">{{ "flagged" if q.state.flagged else "flag" }}</button>
     </form>
   </span>
 </div>

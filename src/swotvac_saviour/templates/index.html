@@ -3,12 +3,17 @@
 {% block content %}
 <h1>Dashboard</h1>
 
+<section class="queue-card">
+  <h2>Queue</h2>
+  <p>{{ counts.answered }} of {{ counts.total }} questions answered.</p>
+  <p><a href="/play" class="btn-primary" role="button">Go to play</a></p>
+</section>
+
 <section>
   <h2>Sync study folder</h2>
   <p class="notice">
-    One folder per subject inside the study directory; folder name becomes the
-    subject tag. PDFs are transcribed by the OpenRouter model and leave the
-    machine to the model provider.
+    One folder per subject; folder name becomes the subject tag. PDFs are
+    transcribed by the OpenRouter model and leave the machine to the provider.
   </p>
   <form method="post" action="/sync">
     <p>
@@ -34,12 +39,6 @@
 </section>
 
 <section>
-  <h2>Queue</h2>
-  <p>{{ counts.answered }} of {{ counts.total }} questions answered.</p>
-  <p><a href="/play">Go to play</a></p>
-</section>
-
-<section>
   <h2>Documents</h2>
   {% for d in documents %}
   <article>
@@ -47,7 +46,7 @@
     <p>
       {{ d.question_count }} questions
       &middot; sha256 {{ d.sha256[:12] }}...
-      &middot; uploaded {{ d.uploaded_at }}
+      &middot; {{ d.uploaded_at }}
     </p>
     <p>
       Tags:
@@ -56,7 +55,7 @@
     <p><a href="/documents/{{ d.id }}/review">Review extraction</a></p>
   </article>
   {% else %}
-  <p>No documents yet. Run a sync above.</p>
+  <p class="notice">No documents yet. Run a sync above.</p>
   {% endfor %}
 </section>
 {% endblock %}

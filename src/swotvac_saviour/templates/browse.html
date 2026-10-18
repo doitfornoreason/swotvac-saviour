@@ -3,44 +3,57 @@
 {% block content %}
 <h1>Browse</h1>
 
-<section>
-  <form method="get" action="/browse">
-    <p>
-      <label for="tag">Tag</label>
-      <select id="tag" name="tag">
-        <option value="0">all</option>
-        {% for t in tag_options %}
-        <option value="{{ t.id }}" {% if filters.tag == t.id %}selected{% endif %}>{{ t.name }}</option>
-        {% endfor %}
-      </select>
-      <label for="doc">Source</label>
-      <select id="doc" name="doc">
-        <option value="0">all</option>
-        {% for d in documents %}
-        <option value="{{ d.id }}" {% if filters.doc == d.id %}selected{% endif %}>{{ d.filename }}</option>
-        {% endfor %}
-      </select>
-      <label><input type="checkbox" name="flagged" value="1" {% if filters.flagged %}checked{% endif %}> flagged only</label>
-      <label><input type="checkbox" name="unmarked" value="1" {% if filters.unmarked %}checked{% endif %}> attempted but not marked</label>
-      <button type="submit" class="btn-primary">Filter</button>
-    </p>
-  </form>
-</section>
+<form method="get" action="/browse" class="filter-bar">
+  <label>
+    <span>Tag</span>
+    <select name="tag">
+      <option value="0">all</option>
+      {% for t in tag_options %}
+      <option value="{{ t.id }}" {% if filters.tag == t.id %}selected{% endif %}>{{ t.name }}</option>
+      {% endfor %}
+    </select>
+  </label>
+  <label>
+    <span>Source</span>
+    <select name="doc">
+      <option value="0">all</option>
+      {% for d in documents %}
+      <option value="{{ d.id }}" {% if filters.doc == d.id %}selected{% endif %}>{{ d.filename }}</option>
+      {% endfor %}
+    </select>
+  </label>
+  <label class="check">
+    <input type="checkbox" name="flagged" value="1" {% if filters.flagged %}checked{% endif %}> flagged
+  </label>
+  <label class="check">
+    <input type="checkbox" name="unmarked" value="1" {% if filters.unmarked %}checked{% endif %}> attempted, not marked
+  </label>
+  <button type="submit" class="btn-primary">Filter</button>
+</form>
+
+<p class="notice">{{ questions | length }} question{{ "s" if questions | length != 1 }}</p>
 
 {% for q in questions %}
-<article>
-  <h2><a href="/questions/{{ q.id }}">{{ q.label }}</a></h2>
-  <p>
-    {{ q.document }} &middot; page {{ q.page_number }}
-    {% if q.section %}&middot; {{ q.section }}{% endif %}
-  </p>
+<article class="browse-item">
+  <div class="browse-head">
+    <a href="/questions/{{ q.id }}">{{ q.label }}</a>
+    <span class="source-badge">{{ q.document }} &middot; page {{ q.page_number }}</span>
+  </div>
+  {% if q.section %}<p class="notice">{{ q.section }}</p>{% endif %}
+  <a class="browse-preview" href="/questions/{{ q.id }}">
+    {% for kind, text in q.segments %}
+      {% if kind == "prose" %}{{ text }}{% else %}<span class="katex-inline">{{ text }}</span>{% endif %}
+    {% endfor %}
+  </a>
+  {% if q.attempted or q.marked or q.flagged %}
   <p>
     {% if q.attempted %}<span class="chip">attempted</span>{% endif %}
     {% if q.marked %}<span class="chip">marked</span>{% endif %}
     {% if q.flagged %}<span class="chip">flagged</span>{% endif %}
   </p>
+  {% endif %}
 </article>
 {% else %}
-<p>No questions match these filters.</p>
+<p class="notice">No questions match these filters.</p>
 {% endfor %}
 {% endblock %}

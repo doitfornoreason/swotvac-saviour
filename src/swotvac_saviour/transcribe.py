@@ -99,6 +99,8 @@ def check_transcription(
         problems.append("unbalanced braces in body_latex")
     if _HTML_RE.search(body_latex):
         problems.append("raw HTML in body_latex")
+    if body_latex.count("$") % 2 != 0:
+        problems.append("unbalanced $ delimiters in body_latex")
     try:
         float(result.get("confidence"))
     except (TypeError, ValueError):
@@ -147,8 +149,9 @@ Return ONLY a JSON object with exactly these keys:
 - "label": the question label, exactly "{label}"
 - "body": the full question text as plain text, including ALL sub-parts (a), (b), ...
 - "body_latex": the same text as KaTeX-safe LaTeX: plain prose may stay plain,
-  math written with LaTeX commands (e.g. \\frac{{a}}{{b}}, \\sum_{{i=1}}^n), no
-  HTML, no $ delimiters, balanced braces
+  math wrapped in $...$ (inline) or $$...$$ (display equation) delimiters,
+  written with LaTeX commands (e.g. $\\frac{{a}}{{b}}$, $$\\sum_{{i=1}}^n$$), no
+  HTML, balanced braces, every $ opened must be closed
 - "confidence": a number from 0 to 1 estimating transcription fidelity
 Rules: transcribe faithfully, never solve the question, never add hints,
 never paraphrase or omit sub-parts. If the crop is cut off, transcribe what is

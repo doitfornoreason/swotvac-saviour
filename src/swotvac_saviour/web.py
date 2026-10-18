@@ -220,6 +220,8 @@ def create_app(db_path: str | Path, study_dir: str | Path | None = None) -> Fast
             flagged=bool(flagged),
             attempted_unmarked=bool(unmarked),
         )
+        for q in questions:
+            q["segments"] = normalise.latex_segments(q["body_latex"])
         return render(
             request,
             "browse.html",
