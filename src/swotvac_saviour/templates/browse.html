@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block title %}Browse - swotvac-saviour{% endblock %}
+{% block content %}
+<h1>Browse</h1>
+
+<section>
+  <form method="get" action="/browse">
+    <p>
+      <label for="tag">Tag</label>
+      <select id="tag" name="tag">
+        <option value="0">all</option>
+        {% for t in tag_options %}
+        <option value="{{ t.id }}" {% if filters.tag == t.id %}selected{% endif %}>{{ t.name }}</option>
+        {% endfor %}
+      </select>
+      <label for="doc">Source</label>
+      <select id="doc" name="doc">
+        <option value="0">all</option>
+        {% for d in documents %}
+        <option value="{{ d.id }}" {% if filters.doc == d.id %}selected{% endif %}>{{ d.filename }}</option>
+        {% endfor %}
+      </select>
+      <label><input type="checkbox" name="flagged" value="1" {% if filters.flagged %}checked{% endif %}> flagged only</label>
+      <label><input type="checkbox" name="unmarked" value="1" {% if filters.unmarked %}checked{% endif %}> attempted but not marked</label>
+      <button type="submit" class="btn-primary">Filter</button>
+    </p>
+  </form>
+</section>
+
+{% for q in questions %}
+<article>
+  <h2><a href="/questions/{{ q.id }}">{{ q.label }}</a></h2>
+  <p>
+    {{ q.document }} &middot; page {{ q.page_number }}
+    {% if q.section %}&middot; {{ q.section }}{% endif %}
+  </p>
+  <p>
+    {% if q.attempted %}<span class="chip">attempted</span>{% endif %}
+    {% if q.marked %}<span class="chip">marked</span>{% endif %}
+    {% if q.flagged %}<span class="chip">flagged</span>{% endif %}
+  </p>
+</article>
+{% else %}
+<p>No questions match these filters.</p>
+{% endfor %}
+{% endblock %}

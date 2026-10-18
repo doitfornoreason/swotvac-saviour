@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% block title %}Confirm fresh sync - swotvac-saviour{% endblock %}
+{% block content %}
+<h1>Fresh sync</h1>
+<p>
+  This wipes all documents, questions and queue state for
+  <strong>{{ directory }}</strong> and re-transcribes every PDF from scratch
+  (LLM calls again, costs money).
+</p>
+<form method="post" action="/sync/confirm" onsubmit="return confirm('Wipe everything and re-sync?')">
+  <input type="hidden" name="dir" value="{{ directory }}">
+  <input type="hidden" name="model" value="{{ model }}">
+  <input type="hidden" name="cap" value="{{ cap }}">
+  <input type="hidden" name="fresh" value="1">
+  <input type="hidden" name="token" value="{{ fresh_token }}">
+  <button type="submit" class="btn-primary">Yes, fresh sync</button>
+  <a href="/" class="btn-secondary">Cancel</a>
+</form>
+{% endblock %}

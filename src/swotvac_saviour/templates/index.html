@@ -1,21 +1,62 @@
 {% extends "base.html" %}
+{% block title %}Dashboard - swotvac-saviour{% endblock %}
 {% block content %}
-<h1>Documents</h1>
-{% for d in documents %}
-  <article>
-    <h2>{{ d.filename }}</h2>
+<h1>Dashboard</h1>
+
+<section>
+  <h2>Sync study folder</h2>
+  <p class="notice">
+    One folder per subject inside the study directory; folder name becomes the
+    subject tag. PDFs are transcribed by the OpenRouter model and leave the
+    machine to the model provider.
+  </p>
+  <form method="post" action="/sync">
     <p>
-      <span>{{ d.question_count }} questions</span>
-      <span>sha256 {{ d.sha256[:12] }}...</span>
-      <span>uploaded {{ d.uploaded_at }}</span>
+      <label for="dir">Study directory</label><br>
+      <input type="text" id="dir" name="dir" size="48" required value="{{ dir }}">
+    </p>
+    <p>
+      <label for="model">OpenRouter model</label><br>
+      <input type="text" id="model" name="model" size="48" value="{{ model }}">
+    </p>
+    <p>
+      <label for="cap">LLM call cap per document (0 = no cap)</label><br>
+      <input type="text" id="cap" name="cap" size="8" value="0">
+    </p>
+    <p>
+      <button type="submit" class="btn-primary">Sync</button>
+      <button type="submit" name="fresh" value="1" class="btn-secondary">Fresh sync (wipe all)</button>
+    </p>
+  </form>
+  {% if sync_result %}
+  <p><strong>Last sync:</strong> {{ sync_result.summary() }}</p>
+  {% endif %}
+</section>
+
+<section>
+  <h2>Queue</h2>
+  <p>{{ counts.answered }} of {{ counts.total }} questions answered.</p>
+  <p><a href="/play">Go to play</a></p>
+</section>
+
+<section>
+  <h2>Documents</h2>
+  {% for d in documents %}
+  <article>
+    <h3>{{ d.filename }}</h3>
+    <p>
+      {{ d.question_count }} questions
+      &middot; sha256 {{ d.sha256[:12] }}...
+      &middot; uploaded {{ d.uploaded_at }}
     </p>
     <p>
       Tags:
-      {% if d.tags %}{{ d.tags | join(", ") }}{% else %}<em>none</em>{% endif %}
+      {% for t in d.tags %}<span class="chip">{{ t }}</span>{% else %}<em>none</em>{% endfor %}
     </p>
-    <a href="/documents/{{ d.id }}/review">Review extraction</a>
+    <p><a href="/documents/{{ d.id }}/review">Review extraction</a></p>
   </article>
-{% else %}
-  <p>No documents yet. <a href="/upload">Upload a question PDF</a>.</p>
-{% endfor %}
+  {% else %}
+  <p>No documents yet. Run a sync above.</p>
+  {% endfor %}
+</section>
 {% endblock %}

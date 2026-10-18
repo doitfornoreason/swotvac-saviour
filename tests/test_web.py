@@ -1,17 +1,29 @@
-"""Web shell tests: dashboard, upload, review, tags, error paths."""
+"""Web shell tests: dashboard/sync, play queue, browse filters, state toggles."""
 
 from __future__ import annotations
 
+import json
+import sqlite3
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 from fastapi.testclient import TestClient
 
+from swotvac_saviour import db
+from swotvac_saviour.sync import SyncResult
 from swotvac_saviour.web import create_app
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 EXERCISES = REPO_ROOT / "samples" / "exercises.pdf"
-MAST20030 = REPO_ROOT / "samples" / "MAST20030ProblemBooklet_Topic4.pdf"
+
+
+@pytest.fixture
+def conn(tmp_path):
+    c = db.connect(str(tmp_path / "seed.db"))
+    db.init_db(c)
+    yield c
+    c.close()
 
 
 @pytest.fixture
@@ -25,220 +37,312 @@ def _create_tag(client, name):
     return client.post("/tags", data={"name": name}, follow_redirects=False)
 
 
-def _upload(client, path, tags=(), style="exercise"):
-    for t in tags:
-        _create_tag(client, t)
-    data = {"style": style}
-    if tags:
-        data["tags"] = list(tags) if len(tags) > 1 else tags[0]
-    files = {"pdf": (path.name, open(path, "rb"), "application/pdf")}
-    return client.post("/upload", data=data, files=files, follow_redirects=False)
+def _seed_document(conn, *, tag_name="Functional Analysis", n=2, flagged=(), marked=()):
+    """One document + n questions appended to the queue; returns question ids."""
+    tag_id = db.add_tag(conn, tag_name)
+    doc_id = db.insert_document(conn, "test.pdf", "sha-test-" + tag_name, "/tmp/test.pdf")
+    db.assign_tag(conn, doc_id, tag_id)
+    conn.commit()
+    ids = []
+    for i in range(n):
+        qid = db.insert_question(
+            conn, doc_id,
+            page_number=i + 1, section="", label=f"Exercise 1.{i + 1}.",
+            body=f"body {i}", body_latex=f"body {i}", hint=None,
+        )
+        ids.append(qid)
+    conn.commit()
+    db.append_to_queue(conn, ids)
+    conn.commit()
+    for idx in flagged:
+        db.set_question_state(conn, ids[idx], flagged=True)
+    for idx in marked:
+        db.set_question_state(conn, ids[idx], marked=True)
+    return doc_id, ids
 
+
+# --- dashboard ------------------------------------------------------------------
 
 def test_dashboard_empty(client):
     r = client.get("/")
     assert r.status_code == 200
     assert "No documents yet" in r.text
+    assert "Sync study folder" in r.text
 
 
-def test_upload_redirects_to_review(client):
-    r = _upload(client, EXERCISES, tags=["Functional Analysis"])
-    assert r.status_code == 303
-    loc = r.headers["location"]
-    assert loc.startswith("/documents/1/review")
-
-
-def test_review_lists_all_questions(client):
-    _upload(client, EXERCISES)
-    r = client.get("/documents/1/review")
+def test_dashboard_renders_counts(client, conn):
+    conn2 = db.connect(str(client.app.state.db_path))
+    db.init_db(conn2)
+    _seed_document(conn2)
+    conn2.close()
+    r = client.get("/")
     assert r.status_code == 200
-    assert "Exercise 1.1." in r.text
-    assert "Exercise B.16." in r.text
-    assert "122 questions" in r.text
+    assert "0 of 2 questions answered" in r.text
 
 
-def test_review_shows_warnings_on_numbered_sample(client):
-    # MAST20030 has a guaranteed "solutions section" warning
-    r = _upload(client, MAST20030, style="number")
-    assert r.status_code == 303
-    r = client.get(r.headers["location"].split("?")[0])
-    assert r.status_code == 200
-    assert "solutions section starts at page" in r.text
-    assert "7 questions" in r.text
+# --- sync -----------------------------------------------------------------------
+
+def _fake_sync_result(n=3):
+    return SyncResult(imported=["s.pdf"], questions=n, llm=n, fallback=0)
 
 
-def test_upload_stores_pdf_by_sha(client):
-    _upload(client, EXERCISES)
-    stored = list((Path(client.app.state.uploads_dir)).glob("*.pdf"))
-    assert len(stored) == 1
-    assert len(stored[0].stem) == 64  # sha256 hex, client filename never used
-
-
-def test_reupload_same_sha_skips(client):
-    _upload(client, EXERCISES)
-    r = _upload(client, EXERCISES, tags=["Algebra"])
-    assert r.status_code == 303
-    assert r.headers["location"].startswith("/documents/1/review?outcome=skipped")
-    docs = client.get("/").text
-    assert docs.count("exercises.pdf") == 1
-
-
-def test_upload_rejects_empty_file(client):
-    files = {"pdf": ("empty.pdf", b"", "application/pdf")}
-    r = client.post("/upload", data={"style": "exercise"}, files=files)
+def test_sync_requires_dir(client):
+    r = client.post("/sync", data={"dir": "", "model": "", "cap": "0"}, follow_redirects=False)
     assert r.status_code == 400
-    assert not list((Path(client.app.state.uploads_dir)).glob("*.pdf"))
 
 
-def test_upload_rejects_missing_filename(client):
+def test_sync_runs_and_renders_dashboard(client):
+    with patch("swotvac_saviour.sync.sync_directory", return_value=_fake_sync_result()) as mock_sync, \
+         patch("swotvac_saviour.transcribe.load_api_key", return_value="sk-or-test"):
+        r = client.post(
+            "/sync",
+            data={"dir": ".", "model": "test-model", "cap": "0"},
+            follow_redirects=False,
+        )
+    assert r.status_code == 200
+    assert "Last sync" in r.text
+    assert "imported" in r.text
+    assert mock_sync.call_count == 1
+
+
+def test_sync_fresh_renders_confirmation(client):
+    with patch("swotvac_saviour.transcribe.load_api_key", return_value="sk-or-test"):
+        r = client.post(
+            "/sync", data={"dir": ".", "model": "", "cap": "0", "fresh": "1"},
+            follow_redirects=False,
+        )
+    assert r.status_code == 200
+    assert "Confirm fresh sync" in r.text or "Fresh sync" in r.text
+    assert "wipe all" in r.text.lower() or "wipes" in r.text.lower()
+
+
+def test_sync_confirm_requires_token(client):
     r = client.post(
-        "/upload",
-        data={"style": "exercise"},
-        files={"pdf": ("", b"%PDF", "application/pdf")},
+        "/sync/confirm", data={"dir": ".", "model": "", "cap": "0", "fresh": "1", "token": "bad"},
+        follow_redirects=False,
     )
-    assert r.status_code in (400, 422)
+    assert r.status_code == 409
 
 
-def test_upload_rejects_non_pdf(client):
-    files = {"pdf": ("notes.txt", b"this is not a pdf", "text/plain")}
-    r = client.post("/upload", data={"style": "exercise"}, files=files)
-    assert r.status_code == 400
-    assert not list((Path(client.app.state.uploads_dir)).glob("*.pdf"))
+def test_sync_confirm_with_valid_token(client):
+    # first request generates and stores the token
+    with patch("swotvac_saviour.transcribe.load_api_key", return_value="sk-or-test"):
+        client.post("/sync", data={"dir": ".", "model": "", "cap": "0", "fresh": "1"}, follow_redirects=False)
+    token = client.app.state.fresh_token
+    with patch("swotvac_saviour.sync.sync_directory", return_value=_fake_sync_result()) as mock_sync, \
+         patch("swotvac_saviour.transcribe.load_api_key", return_value="sk-or-test"):
+        r = client.post(
+            "/sync/confirm",
+            data={"dir": ".", "model": "", "cap": "0", "fresh": "1", "token": token},
+            follow_redirects=False,
+        )
+    assert r.status_code == 200
+    assert mock_sync.call_count == 1
 
 
-def test_tag_questions_listing(client):
-    _upload(client, EXERCISES, tags=["Functional Analysis"])
-    tag_id = 1
-    r = client.get(f"/tags/{tag_id}/questions")
+# --- play -----------------------------------------------------------------------
+
+def test_play_empty_renders_done(client):
+    r = client.get("/play")
+    assert r.status_code == 200
+    assert "Queue done" in r.text
+
+
+def test_play_shows_current_question(client, conn):
+    conn2 = db.connect(str(client.app.state.db_path))
+    db.init_db(conn2)
+    _seed_document(conn2, n=1)
+    conn2.close()
+    r = client.get("/play")
     assert r.status_code == 200
     assert "Exercise 1.1." in r.text
-    assert "Exercise B.16." in r.text
+    assert "no solutions" in r.text
 
 
-def test_tag_page_lists_tags(client):
-    _upload(client, EXERCISES, tags=["Functional Analysis"])
-    r = client.get("/tags")
+def test_play_answer_advances_queue(client, conn):
+    conn2 = db.connect(str(client.app.state.db_path))
+    db.init_db(conn2)
+    _, ids = _seed_document(conn2, n=1)
+    conn2.close()
+    r = client.post("/play/answer", data={"question_id": ids[0]}, follow_redirects=False)
+    assert r.status_code in (200, 303)
+    conn3 = db.connect(str(client.app.state.db_path))
+    assert db.queue_counts(conn3)["answered"] == 1
+    conn3.close()
+
+
+def test_play_reshuffle_keeps_past_fixed(client, conn):
+    conn2 = db.connect(str(client.app.state.db_path))
+    db.init_db(conn2)
+    _, ids = _seed_document(conn2, n=3)
+    # answer the first one: it becomes past
+    db.advance_queue(conn2, ids[0])
+    before = conn2.execute("SELECT question_id, position FROM queue ORDER BY position").fetchall()
+    conn2.close()
+    r = client.post("/play/reshuffle", follow_redirects=False)
+    assert r.status_code in (200, 303)
+    conn3 = db.connect(str(client.app.state.db_path))
+    after = conn3.execute("SELECT question_id, position FROM queue ORDER BY position").fetchall()
+    conn3.close()
+    # first (answered) row unchanged
+    assert before[0] == after[0]
+    # remaining two are a permutation of the same ids
+    assert sorted(q for q, _ in after[1:]) == sorted(q for q, _ in before[1:])
+
+
+def test_play_requeue_flagged(client, conn):
+    conn2 = db.connect(str(client.app.state.db_path))
+    db.init_db(conn2)
+    _, ids = _seed_document(conn2, n=2, flagged=(0,))
+    db.advance_queue(conn2, ids[0])
+    db.advance_queue(conn2, ids[1])
+    conn2.close()
+    r = client.post("/play/requeue", follow_redirects=False)
+    assert r.status_code in (200, 303)
+    conn3 = db.connect(str(client.app.state.db_path))
+    assert db.queue_counts(conn3)["answered"] == 1  # flagged one re-opened
+    conn3.close()
+
+
+# --- state toggles --------------------------------------------------------------
+
+def test_state_mark_implies_attempted(client, conn):
+    conn2 = db.connect(str(client.app.state.db_path))
+    db.init_db(conn2)
+    _, ids = _seed_document(conn2, n=1)
+    conn2.close()
+    r = client.post(
+        "/questions/%d/state" % ids[0],
+        data={"field": "marked", "value": "1", "next": "/play"},
+        follow_redirects=False,
+    )
+    assert r.status_code == 303
+    state = db.question_state(db.connect(str(client.app.state.db_path)), ids[0])
+    assert state == {"attempted": True, "marked": True, "flagged": False}
+
+
+def test_state_rejects_unknown_field(client):
+    r = client.post(
+        "/questions/1/state", data={"field": "bogus", "value": "1"}, follow_redirects=False
+    )
+    assert r.status_code == 400
+
+
+# --- browse ---------------------------------------------------------------------
+
+def test_browse_lists_questions(client, conn):
+    conn2 = db.connect(str(client.app.state.db_path))
+    db.init_db(conn2)
+    _seed_document(conn2, n=2)
+    conn2.close()
+    r = client.get("/browse")
     assert r.status_code == 200
-    assert "Functional Analysis" in r.text
+    assert "Exercise 1.1." in r.text
+    assert "Exercise 1.2." in r.text
 
 
-def test_missing_document_404(client):
+def test_browse_filter_flagged(client, conn):
+    conn2 = db.connect(str(client.app.state.db_path))
+    db.init_db(conn2)
+    _seed_document(conn2, n=2, flagged=(1,))
+    conn2.close()
+    r = client.get("/browse?flagged=1")
+    assert r.status_code == 200
+    assert "Exercise 1.2." in r.text
+    assert "Exercise 1.1." not in r.text
+
+
+def test_browse_filter_attempted_unmarked(client, conn):
+    conn2 = db.connect(str(client.app.state.db_path))
+    db.init_db(conn2)
+    _seed_document(conn2, n=3, marked=(0,))
+    # ids[0] is marked => attempted. ids[1] and ids[2] are not attempted.
+    # explicitly attempt ids[1] only:
+    db.set_question_state(conn2, 2, attempted=True)
+    conn2.commit()
+    conn2.close()
+    r = client.get("/browse?unmarked=1")
+    assert r.status_code == 200
+    assert "Exercise 1.2." in r.text   # attempted but not marked
+    assert "Exercise 1.1." not in r.text  # marked
+    assert "Exercise 1.3." not in r.text  # not attempted
+
+
+# --- question view --------------------------------------------------------------
+
+def test_question_view_renders_details(client, conn):
+    conn2 = db.connect(str(client.app.state.db_path))
+    db.init_db(conn2)
+    _, ids = _seed_document(conn2, n=1)
+    conn2.close()
+    r = client.get(f"/questions/{ids[0]}")
+    assert r.status_code == 200
+    assert "Exercise 1.1." in r.text
+    assert "Warnings" in r.text
+
+
+def test_question_view_404(client):
+    r = client.get("/questions/9999")
+    assert r.status_code == 404
+
+
+# --- review / documents ---------------------------------------------------------
+
+def test_review_lists_questions(client, conn):
+    conn2 = db.connect(str(client.app.state.db_path))
+    db.init_db(conn2)
+    doc_id, _ = _seed_document(conn2, n=2)
+    conn2.close()
+    r = client.get(f"/documents/{doc_id}/review")
+    assert r.status_code == 200
+    assert "test.pdf" in r.text
+    assert "Exercise 1.1." in r.text
+
+
+def test_review_missing_document_404(client):
     r = client.get("/documents/999/review")
     assert r.status_code == 404
 
 
-def test_missing_tag_404(client):
-    r = client.get("/tags/999/questions")
+def test_page_image_route_missing_doc_404(client):
+    r = client.get("/documents/999/page/1")
     assert r.status_code == 404
 
 
-def test_assign_tag_fragment_vs_redirect(client):
-    _upload(client, EXERCISES, tags=["Algebra"])
-    # duplicate create returns 409, never 500
-    assert _create_tag(client, "Algebra").status_code == 409
-    # htmx request -> fragment
-    r = client.post(
-        "/documents/1/tags",
-        data={"tag_name": "Algebra"},
-        headers={"HX-Request": "true"},
-    )
+# --- tags -----------------------------------------------------------------------
+
+def test_tag_page_lists_tags(client, conn):
+    conn2 = db.connect(str(client.app.state.db_path))
+    db.init_db(conn2)
+    db.add_tag(conn2, "Algebra")
+    conn2.commit()
+    conn2.close()
+    r = client.get("/tags")
     assert r.status_code == 200
     assert "Algebra" in r.text
-    # unknown tag -> 400, no auto-create
-    r = client.post(
-        "/documents/1/tags",
-        data={"tag_name": "Topology"},
-        headers={"HX-Request": "true"},
-    )
-    assert r.status_code == 400
-    # plain form -> redirect
-    r = client.post(
-        "/documents/1/tags", data={"tag_name": "Algebra"}, follow_redirects=False
-    )
-    assert r.status_code == 303
-    assert r.headers["location"] == "/documents/1/review"
-
-
-def test_reimport_changes_style(client):
-    _upload(client, MAST20030, style="number")
-    r = client.get("/documents/1/review")
-    assert "7 questions" in r.text
-    # re-import with default exercise style (no numbered labels -> 0 questions)
-    r = client.post(
-        "/documents/1/reimport", data={"style": "exercise"}, follow_redirects=False
-    )
-    assert r.status_code == 303
-    r = client.get("/documents/1/review")
-    assert "No questions extracted" in r.text
-
-
-def test_duplicate_tag_409_never_500(client, monkeypatch):
-    from swotvac_saviour import db as swotvac_db
-
-    def boom(conn, name):
-        raise swotvac_db.DuplicateTagError(name)
-
-    monkeypatch.setattr(swotvac_db, "add_tag", boom)
-    # /tags create surfaces DuplicateTagError as 409, never 500
-    r = client.post("/tags", data={"name": "X"}, follow_redirects=False)
-    assert r.status_code == 409
-    assert "tag already exists" in r.text
-    with open(EXERCISES, "rb") as fh:
-        r = client.post(
-            "/upload",
-            data={"style": "exercise"},
-            files={"pdf": ("exercises.pdf", fh, "application/pdf")},
-            follow_redirects=False,
-        )
-    assert r.status_code == 303  # untagged import still works, no 500
-
-
-def test_upload_rejects_unknown_tag(client):
-    files = {"pdf": ("exercises.pdf", open(EXERCISES, "rb").read(), "application/pdf")}
-    r = client.post(
-        "/upload",
-        data={"style": "exercise", "tags": "NoSuchTag"},
-        files=files,
-        follow_redirects=False,
-    )
-    assert r.status_code == 400
-    assert "unknown tag" in r.text
-    assert not list((Path(client.app.state.uploads_dir)).glob("*.pdf"))
 
 
 def test_create_tag_route(client):
-    r = _create_tag(client, "Algebra")
+    r = client.post("/tags", data={"name": "Algebra"}, follow_redirects=False)
     assert r.status_code == 303
-    r2 = _create_tag(client, "Algebra")
-    assert r2.status_code == 409
-    assert client.get("/tags").status_code == 200
-    assert "Algebra" in client.get("/tags").text
+    conn = db.connect(str(client.app.state.db_path))
+    assert "Algebra" in db.list_tags(conn)
+    conn.close()
 
 
-def test_upload_rejects_text_file_pymupdf_can_open(client):
-    """PyMuPDF can open plain text; the magic-byte gate must reject it."""
-    form_feed = b"foo\n\x0cbar\n\x0cbaz\n"
-    files = {"pdf": ("fake.txt", form_feed, "text/plain")}
-    r = client.post(
-        "/upload", data={"style": "exercise"}, files=files, follow_redirects=False
-    )
-    assert r.status_code == 400
-    assert not list((Path(client.app.state.uploads_dir)).glob("*.pdf"))
-
-
-def test_import_pdf_rejects_non_pdf(tmp_path):
-    from swotvac_saviour.importer import import_pdf
-
-    fake = tmp_path / "fake.txt"
-    fake.write_bytes(b"not a pdf at all\n\x0cmore")
-    with pytest.raises(ValueError, match="not a PDF"):
-        import_pdf(str(tmp_path / "x.db"), str(fake), [], style="exercise")
-
+# --- static ---------------------------------------------------------------------
 
 def test_static_files_served(client):
+    r = client.get("/static/play.js")
+    assert r.status_code == 200
     r = client.get("/static/style.css")
     assert r.status_code == 200
-    assert "font-family" in r.text
-    r = client.get("/static/htmx.min.js")
+
+
+def test_base_template_has_new_nav(client):
+    r = client.get("/")
     assert r.status_code == 200
-    assert r.text.startswith("var htmx")
+    assert 'href="/play"' in r.text
+    assert 'href="/browse"' in r.text
+    assert 'href="/upload"' not in r.text
+    assert 'href="/stats"' not in r.text

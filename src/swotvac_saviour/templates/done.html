@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% block title %}Done - swotvac-saviour{% endblock %}
+{% block content %}
+<h1>Queue done</h1>
+<p>{{ counts.answered }} of {{ counts.total }} questions answered.</p>
+<p>
+  <form method="post" action="/play/requeue" class="action-form">
+    <button type="submit" class="btn-primary">Re-queue flagged and marked questions</button>
+  </form>
+</p>
+<p><a href="/">Back to dashboard</a></p>
+{% endblock %}

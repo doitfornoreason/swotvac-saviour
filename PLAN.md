@@ -1,214 +1,104 @@
-# swotvac-saviour - Plan v2 (folder workflow)
+# swotvac-saviour — Plan v3 (llm-first branch)
 
-Planning document. Describes the new primary workflow and maps every existing
-component as reused, adapted, or retired. No implementation in this phase.
+Current working plan. Supersedes PLAN.md v2 (old folder-workflow draft).
+Status when written: build started on branch `llm-first`, halted mid-flight
+for review. Nothing committed yet.
 
-## Overview
+## Motive
 
-A student opens an omp session in a study directory. The directory contains
-one subfolder per subject; each subfolder holds the exercise PDFs for that
-subject. The tool ingests those folders, transcribes the questions with a
-cheap model, and serves a local site that shuffles the transcribed questions,
-saves progress, and reports accuracy.
+The deterministic parser alone is not good enough for real question PDFs:
+maths mangles, sub-parts break, hints and structure drift. The fork to
+`llm-first` makes LLM transcription the primary engine and rebuilds the
+practice flow around a global queue instead of per-tag sessions.
 
-The site the student uses is produced by a template/tool: the LLM inserts the
-question data into a scaffold, and the tool supplies everything needed to
-build and run a self-hosted site on top of the database.
+## Target workflow (student view)
 
-## Workflow
+1. Study directory holds one folder per subject; each folder holds that
+   subject's PDFs (recursively). Folder name = subject tag.
+2. Student opens the locally served site once, gives the study directory and
+   an OpenRouter model (default `z-ai/glm-5.3-flash`, id verified at build).
+3. Sync: tool discovers subject folders, gates PDFs by sha256, transcribes
+   each question with the LLM (deterministic parse as fallback), stores rows
+   with tag, source filename, question number, and placeholder solution.
+4. Play page: stable randomised queue, LaTeX question, source + label top
+   right, solution dropdown ("no solutions - feature not added yet"),
+   checkboxes attempted / marked / flag for review, reshuffle button.
+5. Browse page: filter by tag, source, flagged, attempted-but-not-marked.
 
-1. Study layout (student's files, untouched by hand):
+## Locked decisions (from review)
 
-   ```
-   study-dir/
-     linear-algebra/        <- subject folder, becomes a tag
-       sheet3.pdf
-       midterm2024.pdf
-     analysis/
-       exercises.pdf
-       tutorial2.pdf
-   ```
+- Sessions (seeded decks, streaks, stats page) are deleted, not kept.
+- Web upload form deleted; folders are the only ingestion path.
+- Database lives in `<study-dir>/.database/swotvac.db`.
+- Solutions: fixed placeholder string everywhere; extraction later.
+- Hints: verbatim `[Hint: ...]` from the PDF only, never LLM-generated;
+  shown inline with the question when present.
+- Queue is global; reshuffle reorders current+future only, past fixed;
+  new syncs append to tail; exhausted queue shows a done screen and
+  reshuffle re-queues flagged/marked questions.
+- State checkboxes all reversible; marking a question auto-marks attempted.
+- Fresh sync wipes documents, questions and state after JS reconfirmation.
+- Cost cap per document is user-set on the sync form.
+- One guard-rail retry per question, then deterministic fallback + warning.
+- `OPENROUTER_API_KEY` comes from `.env` (study dir, then repo root); the
+  `.env` value wins over the ambient environment.
+- Browse is read-only; clicking a question views it with checkboxes without
+  advancing the queue.
 
-2. Student runs `swotvac-saviour sync`. The tool:
-   a. discovers immediate subfolders; each folder name becomes a subject tag
-      (sanitized: trimmed, unicode kept, empty names skipped);
-   b. scans PDFs inside each folder recursively;
-   c. for each new PDF (sha256 idempotent), splits it with the existing
-      parser and transcribes questions with the cheap model;
-   d. stores questions, tags, and progress in the existing SQLite schema.
+## Build state on `llm-first` (halted)
 
-3. Student runs `swotvac-saviour serve` (existing command) and practices.
+Done so far, uncommitted:
+- `httpx` added as a runtime dependency.
+- `db.py` rewritten: questions gains attempted/marked/flagged/engine/
+  confidence columns; new `queue` and `settings` tables; helpers for state,
+  queue append/advance/reshuffle/requeue, browse filters, settings get/set.
+- `transcribe.py` created: OpenRouter chat client, `.env` loader, crop
+  rendering via PyMuPDF label search, guard rails, retry, JSON extraction.
+- `sync.py` created: folder discovery, style detection, per-document sync
+  with sha gate, LLM pass with deterministic fallback, cost cap, fresh wipe.
+- Deleted: `session.py`, `tests/test_play.py`, play/summary/stats/upload
+  templates.
 
-## Folder sync
-
-New `sync` command: `swotvac-saviour sync [--dir .] [--db swotvac.db]`.
-
-- Discovery: immediate subfolders of the target directory. Folder name is
-  the tag. Files are PDFs only (magic-byte gate already exists).
-- Idempotency: same sha256 never re-imports. Re-running after adding PDFs
-  imports only the new ones.
-- Tag continuity: existing tag rows are matched by name; renaming a folder
-  is a new tag unless explicitly re-keyed via `tag rename` (add to Tag CLI).
-- Deterministic parser runs first (free, offline). Its output seeds the
-  transcription request; the model corrects structure rather than starting
-  from a blank page.
-
-## Transcription engine (cheap model)
-
-Primary path per question, via OpenRouter (OpenAI-compatible; requires
-OPENROUTER_API_KEY env var and one dependency: httpx).
-
-- "cheap" defaults: vision-capable low-cost model for reading question text
-  and math, e.g. google/gemini-2.5-flash `[INFERENCE: verify model/price at
-  build time]`. Verifier pass uses a text model (deepseek-chat or
-  z-ai/glm-5.3-flash).
-- Pipeline per question:
-  - render the question region from the PDF page (existing page-image code)
-    into a PNG crop at ~150dpi;
-  - one model call returns JSON: {label, body, body_latex, hint, confidence};
-  - deterministic guard rails (already built): sub-parts must stay inside the
-    parent question, label must match the parsed label, control words must be
-    in the known KaTeX set, braces balanced, no HTML;
-  - on guard failure, retry once with the image plus a correction hint; the
-    deterministic parse stays as fallback with a warning flag.
-- Cost control: batch same-document questions; hard cap per document
-  (default $0.02, configurable); on cap, remaining questions keep the
-  deterministic transcription with warnings.
-- Storage: existing questions.body_latex column holds model output; additive
-  columns `engine` and `confidence` (nullable) record provenance. New DBs get
-  them via an additive migration; old DBs are read-compatible.
-- Privacy: PDFs leave the machine to the model provider. Flagged: students
-  must not sync private data without accepting this; fully offline mode keeps
-  the deterministic parser as the engine.
-
-## Reuse map
-
-| Component | Verdict | Notes |
-|-----------|---------|-------|
-| parser.py (labels, sub-parts, hints, styles, boundaries) | REUSE | seeds transcription; still the offline engine |
-| normalise.py (ligatures, MATH_MAP, latex_segments, gating) | REUSE | applied to model output before storage |
-| db.py schema + helpers | REUSE | tags already model subjects; additive engine/confidence columns |
-| importer.py (sha dedupe, magic gate, transactional replace) | ADAPT | tags come from folder names during sync; skip auto-create remains |
-| session.py (shuffle, streak, progress, retry) | REUSE | unchanged |
-| web.py play/UI/KaTeX/stats + templates + static | REUSE | unchanged; upload page becomes optional (directive: add flag) |
-| page-image render (badge popover) | REUSE | also feeds transcription crops |
-| CLI parse/import/tag/documents/serve | REUSE | sync added; tag rename added |
-| 58 tests | REUSE | extended, never weakened |
-
-Retired from the primary flow: the web upload form (folders replace manual
-upload). Kept behind a config flag, not deleted, until v2 settles.
-
-## Site template for the LLM
-
-The deliverable for "template/tool": a scaffold the model fills with question
-data, then the tool builds and runs the site.
-
-- Scaffold layout (new phase):
-
-  ```
-  site-template/
-    questions/       <- model writes questions.json here (one file per doc)
-    swotvac.yml      <- site config: title, db path, default tags
-    templates/, static/, web.py, session.py, db.py  <- copied from this repo
-  ```
-
-- New command: `swotvac-saviour init-site <outdir> [--questions file|dir]`.
-  init-site copies the web/static/templates/modules into outdir, and if
-  --questions points at questions.json or a directory of them, imports them
-  into outdir/swotvac.db and assigns tags (top-level folder name = tag for
-  directory mode).
-- After init: `swotvac-saviour serve --db outdir/swotvac.db` (existing
-  command) runs the site. This is the whole interface the LLM needs: write
-  question JSON with the documented schema, call init-site, done.
-- The model-facing contract is one page in the template: the questions.json
-  schema (label, body, body_latex, hint, section, page, tags), plus the two
-  commands (init-site, serve). Everything else is the model writing valid
-  JSON; the tool owns build and hosting.
-
-### Question data contract
-
-The single file an LLM (or student tooling) writes. Top level is a JSON
-array; one element per question. All field names fixed; unknown fields are
-ignored on import, missing optional fields default as shown.
-
-```json
-[
-  {
-    "label": "Exercise 1.1.",
-    "section": "Metrics",
-    "page": 5,
-    "body": "Let (X,d) be a metric space...",
-    "body_latex": "Let (X,d) be a metric space. Show that \\mid d(x,y)...",
-    "hint": "The Cauchy-Schwarz inequality can be useful.",
-    "tags": ["analysis"]
-  }
-]
-```
-
-- `label` (required): unique-ish within a section; used for idempotency and
-  the source badge.
-- `section` (optional, default ""): subsection heading shown on the badge.
-- `page` (int, optional, default 0): printed page number for the popover.
-- `body` (optional): plain-text form, kept for review screens.
-- `body_latex` (required): KaTeX-safe markup; must pass the parser's guard
-  rails (balanced braces, known control words, no raw HTML). init-site runs
-  those checks before import and reports failures instead of importing junk.
-- `hint` (optional, default null).
-- `tags` (optional, default []): subject names; init-site resolves them
-  against existing tags or creates them explicitly (the only auto-create
-  permitted, because the model is the user's agent here).
-
-File modes: single questions.json, or a directory of them (one file per
-document / per subject, imported with the folder name as the default tag).
-
-## omp session workflow
-
-The student's session is the entry point, not a separate app. "Session"
-means any CLI where the two commands can run: omp, a plain terminal, or an
-editor terminal. omp is one supported host, not a dependency (the tool has
-no omp imports at runtime).
-
-1. Student runs the tool in the study directory (the folder layout above).
-   The tool installs as a runnable command (`uv run swotvac-saviour` /
-   installed script), so any agent or human in the session can drive it.
-2. The repo ships a short agent-facing instruction file (`omp-skill.md` at
-   the repo root, plain text) telling agents: three commands exist (sync,
-   init-site, serve), where the DB lives, and where `--engine` is chosen.
-   This file is optional guidance; deleting it changes nothing about the
-   tool's behavior.
-3. Meaningful paths resolve relative to the study directory: `sync .`
-   discovers the subject subfolders in place; `serve` points at the same
-   directory's database. No copying of student files happens.
-4. Open decision: document omp as the primary host (matching this
-   workflow's origin, small README delta) or list all three hosts as equal
-   (no extra doc beyond the skill file). Both need zero code change.
-
-## Phases
-
-1. Folder sync: discovery, folder-to-tag mapping, tag rename, sync tests.
-2. Transcription engine: httpx OpenRouter client, crop pipeline, guard rails,
-   cost cap, engine/confidence columns, fallback behavior.
-3. init-site template: scaffold copy, questions.json import, serve wiring,
-   model-facing contract page.
-4. Tidy: upload form behind flag, docs, end-to-end tests (folder -> site).
+Remaining when confirmed:
+1. `web.py` rewrite: drop sessions/upload/stats routes; add sync form
+   (directory + model + cap), fresh sync button with reconfirmation, play
+   route on the global queue, browse page with filters, state checkbox
+   endpoints, question view endpoint.
+2. Templates: new base nav (Dashboard / Play / Browse / Tags), index with
+   sync form and fresh sync, play page, browse page, question view.
+3. `parser.py` and `ingestion.py` unchanged (reuse as fallback engine).
+4. `__init__.py`: CLI keeps parse/import/tag/documents/serve; serve gains
+   `--dir` to point the study directory (DB path then `.database/swotvac.db`).
+5. Tests: rewrite `test_web.py`-style coverage for new routes; unit tests for
+   guard rails, queue invariants (reshuffle keeps past fixed, append to tail,
+   requeue flagged), marked-implies-attempted, sha gate, fresh-sync wipe,
+   cost cap, `.env` key precedence. Existing `test_db.py` updated to the new
+   schema; `test_parser.py` untouched. No live API calls in tests.
+6. Verification: real sync over a sample folder layout with a real key once
+   provided (currently no `.env`), browser click-through of play and browse.
 
 ## Open decisions
 
-- Model pick and price check for the "cheap" defaults (build-time decision).
-- Folder name normalization (case, spaces, non-Latin) for tags.
-- Whether PDFs directly in the sync root (no folder) import untagged or are
-  skipped.
-- API key handling: env var only, documented.
-- Privacy statement wording for the OpenRouter path.
+- Exact OpenRouter model id + price check for the default (`z-ai/glm-5.3-flash`
+  vs `google/gemini-2.5-flash`) — verify at build time.
+- Done-screen contents beyond counts (e.g. per-tag breakdown).
+- Whether CLI `sync` subcommand is added alongside the web-driven sync or the
+  web form is the only entry point.
 
 ## Risks
 
-- Cost runaway on large booklets: mitigated by per-document cap and
+- Cost runaway on big booklets — mitigated by user-set per-document cap and
   deterministic fallback.
-- Transcription drift (model rewrites the question): mitigated by label
-  match, sub-part integrity, known-control-word and brace checks, plus the
-  source-page popover for verification.
-- Folder rename breaks tag continuity: mitigated via tag rename re-key.
-- Offline students: deterministic parser remains a working engine.
-- Privacy: external transcription is opt-in per sync run (flag
-  --engine llm|pymupdf, default llm if key present, pymupdf otherwise).
+- Transcription drift — label match, brace/HTML checks, confidence column,
+  warnings, source badge for verification.
+- Mid-build halt: working tree has half-migrated schema; resuming means
+  finishing web.py/templates/tests before anything is usable again.
+- Privacy: PDFs leave the machine to the model provider; the sync form should
+  state this once.
+
+## If confirmed
+
+Continue in the order above until web.py + templates + tests are done, run the
+full suite, then commit `llm-first` work as a single reviewable commit. Say
+"BUILD" to resume; say "switch path" with the change and the plan gets
+rewritten before any further code.
