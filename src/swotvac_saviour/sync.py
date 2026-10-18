@@ -22,6 +22,7 @@ NO_SOLUTION = db.NO_SOLUTION
 class SyncResult:
     imported: list[str] = field(default_factory=list)  # display names
     skipped: list[str] = field(default_factory=list)
+    retagged: list[str] = field(default_factory=list)  # sha-gate skips that re-attached a tag
     failed: list[str] = field(default_factory=list)  # unreadable PDFs
     questions: int = 0
     llm: int = 0
@@ -31,6 +32,8 @@ class SyncResult:
 
     def summary(self) -> str:
         parts = [f"{len(self.imported)} imported, {len(self.skipped)} skipped"]
+        if self.retagged:
+            parts.append(f"{len(self.retagged)} retagged")
         if self.fresh:
             parts.append("fresh wipe")
         parts.append(f"{self.questions} questions ({self.llm} llm, {self.fallback} fallback)")
@@ -114,6 +117,12 @@ def sync_directory(
                 sha = importer.sha256_file(str(pdf))
                 existing = db.document_by_sha(conn, sha)
                 if existing is not None:
+                    # sha-gate hit: reuse the existing document, but reconcile
+                    # tags in case the subject folder was renamed or moved.
+                    if tag_name not in db.tags_for_document(conn, existing):
+                        db.assign_tag(conn, existing, tag_row_id)
+                        conn.commit()
+                        result.retagged.append(display)
                     result.skipped.append(display)
                     continue
                 style = _detect_style(str(pdf))

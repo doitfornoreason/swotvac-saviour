@@ -123,3 +123,34 @@ Nothing else starts before this.
   explicit `git push origin llm-first`.
 - `.env` is gitignored; never commit the key. `PLAN_3.pdf` at repo root is
   the user's own notes file — leave it alone.
+
+---
+
+## Session wrap-up (2026-10-19)
+
+Work completed this session:
+1. Branch `llm-first` forked; all v1 sessions/streak code removed.
+2. Checkpoint 1 (`cc36bfa`): queue model, LLM transcription engine,
+   `.env` key precedence, sync.py folder pipeline, 43 passing tests.
+3. Phase 1 live-smoke: real OpenRouter sync over `/tmp/study` booklet,
+   7/7 LLM transcribed, queue/reshuffle/requeue/fresh-sync verified in
+   browser.
+4. Sharability: `requires-python` relaxed to `>=3.11`; `python-multipart`
+   kept (FastAPI Form parsing needs it, not just uploads).
+5. Phase 2 commit (`e2cce47`): LaTeX `$`/`$$` delimiter pipeline (prompt +
+   guard rail + delimiter-aware segmenter), Quiet Workbook UI theme, wider
+   question sheet (52rem), browse rows show real question text (3-line
+   clamp), orphaned templates deleted, requires-python change.
+6. Phase 4 started but **uncommitted**: tag reconciliation on sha-gate skip
+   (`sync.py` — documents skipped by sha now re-attach the current folder's
+   tag if renamed, `SyncResult.retagged` added, summary reports it). 43
+   tests still passing. **This is the only dirty file left in the tree.**
+
+Next session should:
+1. Commit the `sync.py` tag-reconciliation change as its own small commit
+   (finish Phase 4 tag rename item).
+2. Continue Phase 4: CLI `sync` subcommand parity with web form, then the
+   `importer.import_pdf` dead-code decision.
+3. Phase 3 (solutions engine) and Phase 5/6 (docs, review, ship) as per the
+   roadmap above — build only when the owner says so.
+
