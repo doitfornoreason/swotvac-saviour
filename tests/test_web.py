@@ -346,3 +346,54 @@ def test_base_template_has_new_nav(client):
     assert 'href="/browse"' in r.text
     assert 'href="/upload"' not in r.text
     assert 'href="/stats"' not in r.text
+
+
+# --- setup -----------------------------------------------------------------------
+
+def test_setup_page_shows_missing_key(tmp_path, monkeypatch):
+    monkeypatch.setattr("swotvac_saviour.web.transcribe.load_api_key", lambda d: None)
+    app = create_app(str(tmp_path / "web.db"), study_dir=tmp_path)
+    with TestClient(app) as c:
+        r = c.get("/setup")
+    assert r.status_code == 200
+    assert "No key found yet." in r.text
+    assert str(tmp_path) in r.text
+
+
+def test_setup_save_writes_env_and_redirects(tmp_path):
+    study = tmp_path / "study"
+    study.mkdir()
+    app = create_app(str(tmp_path / "web.db"), study_dir=study)
+    with TestClient(app) as c:
+        r = c.post("/setup", data={"key": "sk-or-test", "model": ""},
+                   follow_redirects=False)
+        assert r.status_code == 303
+        assert (study / ".env").read_text() == "OPENROUTER_API_KEY=sk-or-test\n"
+        page = c.get("/setup")
+        assert "Key found." in page.text
+
+
+def test_setup_save_rejects_blank_key(tmp_path):
+    app = create_app(str(tmp_path / "web.db"), study_dir=tmp_path)
+    with TestClient(app) as c:
+        r = c.post("/setup", data={"key": "  "})
+    assert r.status_code == 400
+
+
+def test_setup_save_without_study_dir(tmp_path):
+    app = create_app(str(tmp_path / "web.db"))
+    with TestClient(app) as c:
+        r = c.post("/setup", data={"key": "sk-or-test"})
+    assert r.status_code == 400
+    assert "no study directory known" in r.text
+
+
+def test_setup_save_sets_default_model(tmp_path):
+    study = tmp_path / "study"
+    study.mkdir()
+    app = create_app(str(tmp_path / "web.db"), study_dir=study)
+    with TestClient(app) as c:
+        c.post("/setup", data={"key": "sk-or-test", "model": "other/model"})
+    conn = db.connect(str(tmp_path / "web.db"))
+    assert db.get_setting(conn, "model") == "other/model"
+    conn.close()

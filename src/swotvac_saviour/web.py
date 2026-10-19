@@ -7,6 +7,7 @@ from functools import lru_cache
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, Form, HTTPException, Request, Response
+from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.templating import Jinja2Templates
 
@@ -144,6 +145,44 @@ def create_app(db_path: str | Path, study_dir: str | Path | None = None) -> Fast
                 "sync_result": result,
             },
         )
+
+    # --- setup ---------------------------------------------------------------
+    @app.get("/setup")
+    def setup_page(request: Request, conn=Depends(get_db)):
+        study_dir = app.state.study_dir or db.get_setting(conn, "study_dir") or ""
+        has_key = bool(transcribe.load_api_key(study_dir or None))
+        return render(
+            request,
+            "setup.html",
+            {
+                "study_dir": study_dir,
+                "has_key": has_key,
+                "saved": bool(request.query_params.get("saved")),
+                "model": db.get_setting(conn, "model") or transcribe.DEFAULT_MODEL,
+            },
+        )
+
+    @app.post("/setup")
+    def setup_save(
+        request: Request,
+        conn=Depends(get_db),
+        key: str = Form(""),
+        model: str = Form(""),
+    ):
+        key = key.strip()
+        if not key:
+            raise HTTPException(status_code=400, detail="API key required")
+        study_dir = app.state.study_dir or db.get_setting(conn, "study_dir") or ""
+        if not study_dir:
+            raise HTTPException(
+                status_code=400,
+                detail="no study directory known; run swotvac-saviour with no arguments",
+            )
+        transcribe.save_api_key(study_dir, key)
+        if model:
+            db.set_setting(conn, "model", model)
+            conn.commit()
+        return RedirectResponse("/setup?saved=1", status_code=303)
 
     # --- play -----------------------------------------------------------------
     @app.get("/play")

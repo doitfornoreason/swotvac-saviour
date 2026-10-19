@@ -18,6 +18,10 @@ Run it: `uv run swotvac-saviour serve --db <study-dir>/.database/swotvac.db
 
 ## Locked decisions (do not re-litigate)
 
+- Bare `swotvac-saviour` command = first-run boot: study-dir prompt (default
+  `~/swotvac-study`), then serve. API key entry happens on the web `/setup`
+  page, never a terminal prompt. Default port 8321; link prints
+  `http://127.0.0.1:8321`.
 - Sessions, stats page, streaks, upload form: deleted. Global queue only.
 - DB lives in `<study-dir>/.database/` so sharing a study dir shares state.
 - Solutions: fixed placeholder "no solutions - feature not added yet".
@@ -39,9 +43,11 @@ Run it: `uv run swotvac-saviour serve --db <study-dir>/.database/swotvac.db
 
 ## Current state (as of this writing)
 
-Branch `llm-first`. Two commits: `cc36bfa` (queue model + engine + sessions
-removed) and Phase 2 work **uncommitted in the working tree** — commit it as
-checkpoint 2 before starting anything else.
+Branch `llm-first`. Three commits: `cc36bfa` (queue model + engine + sessions
+removed), `e2cce47` (Phase 2), and `7a1bc27` (prototype: `sync.py` tag
+reconciliation + session wrap-up). `main` points at the same tip as
+`llm-first` (ahead 3 of `origin/master`). Working tree is clean except the
+user's deleted PLAN PDFs (unstaged; leave alone).
 
 Phase 2 delivered (verified, 43 tests passing):
 - Sharability: `requires-python` relaxed to `>=3.11` (keep deps minimal; no
@@ -57,14 +63,14 @@ Phase 2 delivered (verified, 43 tests passing):
   orphaned `questions.html`/`tags_list.html` deleted.
 
 Live-verified end to end: LLM sync 7/7 questions (avg confidence 0.986,
-~50 s), play/answer/reshuffle/requeue flows, fresh sync wipe + re-parse,
+about 50 s), play/answer/reshuffle/requeue flows, fresh sync wipe + re-parse,
 sha256 gate (re-sync skips), source-page popover, all pages HTTP 200.
 
 ## Roadmap — next steps in order
 
-### 0. Commit checkpoint 2 (immediate)
-`git add -A && git commit` on `llm-first` with the Phase 2 summary above.
-Nothing else starts before this.
+### 0. Commit checkpoint 2 (done)
+Done as `e2cce47`; the pending `sync.py` tag-reconciliation change also
+landed as `7a1bc27`. Next work starts at item 2 (Phase 4 remainder).
 
 ### 1. Phase 3 — solutions engine (build or defer indefinitely)
 - Parser already detects the solutions-section boundary
@@ -86,14 +92,30 @@ Nothing else starts before this.
 - Dead code sweep: `importer.import_pdf` is now legacy — decide delete vs
   keep for the `import` CLI command; remove whichever is unused.
 
-### 3. Phase 5 — docs
+### 3. Phase 5 — onboarding: bare-command boot (confirmed design)
+- `swotvac-saviour` with no args: make subcommand optional in
+  `build_arg_parser`; no args dispatches to a first-run setup-and-serve flow.
+- Terminal flow: status lines (DB check, key check, server boot), one prompt
+  for study dir (Enter = `~/swotvac-study`), create
+  `<dir>/.database/swotvac.db`, boot uvicorn on 8321, then print clickable
+  link. Key missing → print `/setup` link instead of root.
+- Web `/setup` page (GET+POST in `web.py` + `setup.html`): form writes
+  `OPENROUTER_API_KEY` (and optional default model) to `<study-dir>/.env`,
+  success links back to the dashboard. No key ever typed in a terminal.
+- Sync stays web-form primary: no terminal-side sync prompt; student clicks
+  the link and uses the existing sync form.
+- Existing subcommands unchanged; `serve` also gains the link print.
+- Tests: setup flow (dir creation, `.env` write, default dispatch, key-missing
+  link choice).
+
+### 4. Phase 6 — docs
 - README rewrite: folder layout, `.env` key setup, first-run flow, sync/play/
   browse usage, cost cap, privacy note (PDFs leave the machine to the model
   provider). Use the `writing-guidelines` skill for tone.
-- Optional first-run `--init` flag that writes `.env` skeleton and creates
-  `.database/` (approved sharability item).
+- First-run `--init` flag (writes `.env` skeleton, creates `.database/`) is
+  superseded by the Phase 5 bare-command boot flow; drop it.
 
-### 4. Phase 6 — final review + ship
+### 5. Phase 7 — final review + ship
 - Run the `caveman-review`/`cavecrew` reviewer pass over the full diff
   (key handling, LaTeX HTML-injection surface, queue invariants).
 - `caveman-commit` final commit. Optionally publish (`uv tool install` from
@@ -141,16 +163,15 @@ Work completed this session:
    guard rail + delimiter-aware segmenter), Quiet Workbook UI theme, wider
    question sheet (52rem), browse rows show real question text (3-line
    clamp), orphaned templates deleted, requires-python change.
-6. Phase 4 started but **uncommitted**: tag reconciliation on sha-gate skip
-   (`sync.py` — documents skipped by sha now re-attach the current folder's
-   tag if renamed, `SyncResult.retagged` added, summary reports it). 43
-   tests still passing. **This is the only dirty file left in the tree.**
+6. Phase 4 tag reconciliation committed as `7a1bc27`: documents skipped by
+   sha now re-attach the current folder's tag if renamed,
+   `SyncResult.retagged` added, summary reports it. 43 tests passing.
 
 Next session should:
-1. Commit the `sync.py` tag-reconciliation change as its own small commit
-   (finish Phase 4 tag rename item).
-2. Continue Phase 4: CLI `sync` subcommand parity with web form, then the
+1. Phase 5 onboarding: bare-command boot flow + web `/setup` page (design
+   locked above; confirmed 2026-10-19).
+2. Phase 4 remainder: CLI `sync` subcommand parity with web form, then the
    `importer.import_pdf` dead-code decision.
-3. Phase 3 (solutions engine) and Phase 5/6 (docs, review, ship) as per the
-   roadmap above — build only when the owner says so.
+3. Phase 6 (docs) and Phase 3/7 (solutions engine, review, ship) as per the
+   roadmap above — solutions engine build only when the owner says so.
 

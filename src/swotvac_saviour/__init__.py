@@ -120,17 +120,55 @@ def _cmd_documents(args: argparse.Namespace) -> int:
 
 
 def _cmd_serve(args: argparse.Namespace) -> int:
+    return _run_server(args.db, host=args.host, port=args.port)
+
+
+def _link_for(host: str, port: int) -> str:
+    display = "127.0.0.1" if host in ("0.0.0.0", "::", "") else host
+    return f"http://{display}:{port}"
+
+
+def _run_server(
+    db_path: str | Path,
+    host: str = "127.0.0.1",
+    port: int = 8321,
+    study_dir: str | Path | None = None,
+) -> int:
     from .web import create_app
 
     import uvicorn
 
-    uvicorn.run(create_app(args.db), host=args.host, port=args.port)
+    key, source = transcribe.load_api_key_source(study_dir)
+    if key:
+        print(f"API key: found ({source})")
+    else:
+        print("API key: missing — enter it on the setup page")
+    print(f"Visit: {_link_for(host, port)}/setup" if not key
+          else f"Visit: {_link_for(host, port)}")
+    uvicorn.run(create_app(db_path, study_dir), host=host, port=port)
     return 0
+
+
+def _cmd_boot(_args: argparse.Namespace) -> int:
+    from .transcribe import load_api_key
+
+    default_dir = Path.home() / "swotvac-study"
+    try:
+        raw = input(f"Study directory [{default_dir}]: ").strip()
+    except EOFError:
+        raw = ""
+    study_dir = Path(raw).expanduser() if raw else default_dir
+    db_dir = study_dir / ".database"
+    db_dir.mkdir(parents=True, exist_ok=True)
+    print(f"Study dir: {study_dir}")
+    print(f"Database:  {db_dir / 'swotvac.db'}")
+    print("Starting server...")
+    return _run_server(str(db_dir / "swotvac.db"), study_dir=str(study_dir))
 
 
 def build_arg_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(prog="swotvac-saviour")
-    sub = ap.add_subparsers(dest="command", required=True)
+    sub = ap.add_subparsers(dest="command")
     p = sub.add_parser("parse", help="split a question PDF into questions.json")
     p.add_argument("pdf", help="path to the question PDF")
     p.add_argument("--out", default="questions.json", help="output JSON path")
@@ -163,12 +201,14 @@ def build_arg_parser() -> argparse.ArgumentParser:
     s = sub.add_parser("serve", help="run the web UI (single-user, local only)")
     s.add_argument("--db", default="swotvac.db", help="SQLite database path")
     s.add_argument("--host", default="127.0.0.1", help="bind address (default 127.0.0.1)")
-    s.add_argument("--port", type=int, default=8000, help="port to listen on")
+    s.add_argument("--port", type=int, default=8321, help="port to listen on")
     return ap
 
 
 def main() -> None:
     args = build_arg_parser().parse_args()
+    if not args.command:
+        sys.exit(_cmd_boot(args))
     if args.command == "parse":
         sys.exit(_cmd_parse(args))
     if args.command == "import":

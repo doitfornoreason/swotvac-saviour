@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block title %}Setup - swotvac-saviour{% endblock %}
+{% block content %}
+<h1>Setup</h1>
+
+{% if saved %}
+<p class="notice"><strong>API key saved.</strong> You can sync from the
+<a href="/">dashboard</a> now.</p>
+{% endif %}
+
+<section>
+  <h2>OpenRouter API key</h2>
+  <p class="notice">
+    Stored in <code>{{ study_dir }}/.env</code>. Sync requests send question
+    PDFs to the model provider.
+  </p>
+  <p>
+    {% if has_key %}Key found.{% else %}No key found yet.{% endif %}
+  </p>
+  <form method="post" action="/setup">
+    <p>
+      <label for="key">OPENROUTER_API_KEY</label><br>
+      <input type="password" id="key" name="key" size="64" required autocomplete="off">
+    </p>
+    <p>
+      <label for="model">Default model</label><br>
+      <input type="text" id="model" name="model" size="48" value="{{ model }}">
+    </p>
+    <p><button type="submit" class="btn-primary">Save</button></p>
+  </form>
+</section>
+{% endblock %}

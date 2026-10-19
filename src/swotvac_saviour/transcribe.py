@@ -48,20 +48,43 @@ def parse_env_file(path: Path) -> dict[str, str]:
     return values
 
 
+def load_api_key_source(study_dir: str | Path | None = None) -> tuple[str | None, str | None]:
+    """Key and where it came from: study .env, repo-root .env, then env var."""
+    sources: list[tuple[str, str]] = []
+    if study_dir:
+        sources.append((str(Path(study_dir) / ".env"),
+                        parse_env_file(Path(study_dir) / ".env").get("OPENROUTER_API_KEY") or ""))
+    repo_env = Path(__file__).resolve().parents[2] / ".env"
+    sources.append((str(repo_env), parse_env_file(repo_env).get("OPENROUTER_API_KEY") or ""))
+    sources.append(("OPENROUTER_API_KEY environment variable", os.environ.get("OPENROUTER_API_KEY") or ""))
+    for label, key in sources:
+        if key:
+            return key, label
+    return None, None
+
+
 def load_api_key(study_dir: str | Path | None = None) -> str | None:
     """OpenRouter key from .env files (study dir, then repo root), then env.
 
     The .env value always wins over an ambient environment variable.
     """
-    candidates: list[Path] = []
-    if study_dir:
-        candidates.append(Path(study_dir) / ".env")
-    candidates.append(Path(__file__).resolve().parents[2] / ".env")
-    for path in candidates:
-        key = parse_env_file(path).get("OPENROUTER_API_KEY")
-        if key:
-            return key
-    return os.environ.get("OPENROUTER_API_KEY")
+    return load_api_key_source(study_dir)[0]
+
+
+def save_api_key(study_dir: str | Path, key: str) -> Path:
+    """Write OPENROUTER_API_KEY into ``<study_dir>/.env``.
+
+    Other KEY=VALUE entries are preserved; comments and quotes are not.
+    Returns the written path.
+    """
+    path = Path(study_dir) / ".env"
+    values = parse_env_file(path)
+    values["OPENROUTER_API_KEY"] = key
+    lines = ["OPENROUTER_API_KEY=" + key]
+    lines += [f"{name}={value}" for name, value in values.items()
+              if name != "OPENROUTER_API_KEY"]
+    path.write_text("\n".join(lines) + "\n", encoding="utf8")
+    return path
 
 
 # --- guard rails ---------------------------------------------------------------
