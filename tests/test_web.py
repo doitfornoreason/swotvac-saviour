@@ -223,6 +223,39 @@ def test_play_requeue_flagged(client, conn):
     conn3.close()
 
 
+def test_play_reset_unanswers_queue(client, conn):
+    conn2 = db.connect(str(client.app.state.db_path))
+    db.init_db(conn2)
+    _, ids = _seed_document(conn2, n=3, flagged=(0,), marked=(1,))
+    db.advance_queue(conn2, ids[0])
+    db.advance_queue(conn2, ids[1])
+    assert db.queue_counts(conn2)["answered"] == 2
+    conn2.close()
+    r = client.post("/play/reset", follow_redirects=False)
+    assert r.status_code == 303
+    assert r.headers["location"] == "/play"
+    conn3 = db.connect(str(client.app.state.db_path))
+    assert db.queue_counts(conn3) == {"total": 3, "answered": 0}
+    # order is untouched; flags are curation, not progress
+    positions = conn3.execute("SELECT question_id, position FROM queue ORDER BY position").fetchall()
+    assert [q for q, _ in positions] == ids
+    state = db.question_state(conn3, ids[0])
+    assert state == {"attempted": False, "marked": False, "flagged": True}
+    conn3.close()
+    # play page shows the first question again, not the done screen
+    page = client.get("/play")
+    assert page.status_code == 200
+    assert "Reset play progress" in page.text
+
+
+def test_play_reset_on_empty_queue(client, conn):
+    conn2 = db.connect(str(client.app.state.db_path))
+    db.init_db(conn2)
+    conn2.close()
+    r = client.post("/play/reset", follow_redirects=False)
+    assert r.status_code == 303
+
+
 # --- state toggles --------------------------------------------------------------
 
 def test_state_mark_implies_attempted(client, conn):

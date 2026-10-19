@@ -93,7 +93,7 @@ The CLI takes the same options as the web form. Omitting `--db` targets `<direct
 
 ## Playing
 
-Each question shows its body (LaTeX rendered via KaTeX), source PDF page, and verbatim hints from the original document; the LLM never invents hints. Controls: **Attempted**, **Marked**, **Flagged**, all reversible (marked implies attempted). The queue order is stable; **Reshuffle** reorders the current and future questions only. When the queue is exhausted, flagged and marked questions are re-queued on demand.
+Each question shows its body (LaTeX rendered via KaTeX), source PDF page, and verbatim hints from the original document; the LLM never invents hints. Controls: **Attempted**, **Marked**, **Flagged**, all reversible (marked implies attempted). The queue order is stable; **Reshuffle** reorders the current and future questions only. When the queue is exhausted, flagged and marked questions are re-queued on demand. The small red reset button (bottom-left) un-answers every queue row so you can replay the whole set from the top; attempt/mark/flag states are kept.
 
 ## Other commands
 

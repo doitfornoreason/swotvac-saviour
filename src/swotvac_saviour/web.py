@@ -308,6 +308,11 @@ def create_app(db_path: str | Path, study_dir: str | Path | None = None) -> Fast
         db.requeue_flagged(conn)
         return RedirectResponse("/play", status_code=303)
 
+    @app.post("/play/reset")
+    def play_reset(request: Request, conn=Depends(get_db)):
+        db.reset_play_state(conn)
+        return RedirectResponse("/play", status_code=303)
+
     # --- question view (browse detail + state toggles) ------------------------
     def _question_view(request: Request, conn: sqlite3.Connection, question_id: int):
         q = db.get_question(conn, question_id)

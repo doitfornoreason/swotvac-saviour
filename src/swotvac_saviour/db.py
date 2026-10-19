@@ -587,6 +587,13 @@ def requeue_flagged(conn: sqlite3.Connection) -> int:
     return cur.rowcount
 
 
+def reset_play_state(conn: sqlite3.Connection) -> int:
+    """Un-answer every queue row; play restarts from the top in queue order."""
+    cur = conn.execute("UPDATE queue SET answered = 0")
+    conn.commit()
+    return cur.rowcount
+
+
 def queue_counts(conn: sqlite3.Connection) -> dict:
     row = conn.execute(
         "SELECT COUNT(*), COALESCE(SUM(answered), 0) FROM queue"

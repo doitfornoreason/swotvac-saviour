@@ -236,6 +236,18 @@ details[open] summary { color: var(--color-ink); }
   background: color-mix(in srgb, var(--color-accent-soft) 80%, var(--color-accent));
 }
 
+/* Play reset: small destructive control pinned to the viewport's bottom-left */
+.reset-form { position: fixed; left: var(--space-3); bottom: var(--space-3); margin: 0; z-index: 10; }
+.reset-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 2rem; height: 2rem; padding: 0;
+  border-radius: 50%;
+  background: transparent; color: #b3261e; border: 1px solid currentColor;
+  cursor: pointer;
+}
+.reset-btn:hover { background: #b3261e; color: #fff; }
+.reset-btn svg { display: block; }
+
 /* Code / data */
 code, pre { font-family: var(--font-mono); white-space: pre-wrap; }
 li { margin: 0.35rem 0; }
