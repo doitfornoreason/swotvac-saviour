@@ -1,6 +1,6 @@
 [project]
 name = "swotvac-saviour"
-version = "0.1.0"
+version = "0.2.0"
 description = "Study tool: transcribe question PDFs into an LLM-structured practice queue"
 readme = "README.md"
 authors = [
