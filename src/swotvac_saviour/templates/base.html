@@ -10,7 +10,7 @@
   <script src="/static/katex/katex.min.js" defer></script>
   <script src="/static/play.js?v={{ static_v('play.js') }}" defer></script>
 </head>
-<body>
+<body class="{% block body_class %}{% endblock %}">
   <header>
     <nav>
       <a href="/">Dashboard</a>

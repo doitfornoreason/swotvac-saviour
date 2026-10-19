@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% block title %}Play - swotvac-saviour{% endblock %}
+{% block body_class %}play{% endblock %}
 {% block content %}
 <div class="play-layout">
 <aside class="history" aria-label="Answered questions">
@@ -16,7 +17,6 @@
 <div class="play-main">
 <div class="play-meta">
   <span class="progress">{{ q.answered }} done &middot; {{ q.position + 1 }} of {{ q.total }}</span>
-  {% if q.section %}<span>{{ q.section }}</span>{% endif %}
   <span class="source-badge">
     <button type="button" data-source-url="/documents/{{ q.document_id }}/page/{{ q.page_number }}"
             aria-expanded="false" aria-label="Show source page">{{ q.document }} &middot; {{ q.label }}</button>
