@@ -70,6 +70,7 @@ Each question shows its body (LaTeX rendered via KaTeX), source PDF page, and ve
 - `tag add|list|assign`: manage subject tags against a database.
 - `documents --db <path>`: list synced documents with their hashes and tags.
 - `serve --db <path> --host 127.0.0.1 --port 8321`: run the web UI against an existing database.
+- Pass `--host 0.0.0.0` to share the server over your LAN. There is no authentication: anyone on the network can browse, flip play state, and trigger syncs. Cross-origin state changes are rejected, but bind to LAN only on a trusted network.
 
 ## Privacy
 

@@ -133,9 +133,9 @@ Remaining: push/publish.
 
 ## Open decision (needs owner input)
 
-- `serve` binds 127.0.0.1 by default. Do we flip the default to 0.0.0.0 for
-  LAN sharing, or keep local-only and document `--host`? (Single-user tool;
-  0.0.0.0 exposes unauthenticated state toggles + sync to the LAN.)
+Resolved 2026-10-19: `serve` keeps the `127.0.0.1` bind default. LAN users
+pass `--host 0.0.0.0` explicitly. The CSRF guard blocks cross-origin state
+changes, but there is still no auth, so keep the default local-only.
 
 ## Environment / tooling notes (for future sessions)
 
