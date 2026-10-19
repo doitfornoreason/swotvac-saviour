@@ -297,3 +297,19 @@ Work completed:
    even across reload).
 4. 86 tests passing (11 new renderer tests). Live-verified q3/q7/q54/q115
    against the real DB in a browser.
+
+## Session wrap-up (2026-10-19, play UX round)
+
+Work completed (bfb0652, 92 tests):
+1. Renderer: prose newlines -> <br> (subparts no longer run together),
+   unknown prose commands (\\quad) wrap as KaTeX math, unknown env wrappers
+   drop, stray \\item -> line break.
+2. Previous button: /play/previous re-opens the most recently answered
+   question as current (answered flag + attempted/marked cleared); p
+   shortcut. Owner choice: un-answer, not read-only view.
+3. History sidebar on /play (left column): answered questions newest first,
+   click -> detail view, ellipsis truncation.
+4. Per-document play exclusion on the BROWSE page (owner moved it from the
+   dashboard): Queue sources checkboxes; disable removes the doc's queue
+   rows, re-enable appends unanswered ones to the tail + reshuffles future.
+   documents.play_enabled migrated in init_db for existing DBs.
