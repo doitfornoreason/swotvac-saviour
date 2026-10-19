@@ -1,6 +1,13 @@
 # swotvac-saviour
 
-Turn exam question PDFs into a practice deck you can play through in the browser. Each question is transcribed by a vision LLM (OpenRouter), stored in SQLite, and served as a stable play queue with resuffle, requeue, and cost caps. Single-user, local-first: your PDFs and database never leave your machine except to call the model provider for transcription.
+For most students studying maths/physics/cs usually means grinding through practice sets. More often than not, these practice sets contain questions that are grouped by topic (eg: lecturer goes through topic X this week, and releases a problem set for the week on topic X). This is known as "blocked practice" (in blocks). Decades of cognitice research demonstrates that randomising/shuffling questions (Interleaved practice) is significantly more effective for improving problem-solving. Why? it forces the student to independently identify the correct problem solving tools and techniques tools required, developing a deeper understanding of the strategy (when its needed and why) rather than blindly applying a known formula/algorithm to a predictable sequence of problems. 
+
+Randomized controlled trials in mathematics have shown that switching from blocked to interleaved practice can boost delayed test averages from 38% to 61%, while university physics students using interleaved study sets have demonstrated up to a 125% median performance improvement on novel, challenging problems. 
+
+
+This is a tool to help you shuffle the questions in your problem sets. `swotvac-saviour` introduces these "desirable difficulties," ensuring you build the durable, adaptable problem-solving skills at a much deeper level.
+
+You can exam question PDFs into a practice deck to play through in the browser. Each question is transcribed by a vision LLM (OpenRouter), stored in SQLite, and served as a stable play queue with resuffle, requeue, and cost caps. Single-user, local-first: your PDFs and database never leave your machine except to call the model provider for transcription.
 
 ## How it works
 
