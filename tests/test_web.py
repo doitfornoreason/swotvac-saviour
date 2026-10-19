@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import time
 from pathlib import Path
 from unittest.mock import patch
 
@@ -99,10 +100,21 @@ def test_sync_runs_and_renders_dashboard(client):
             data={"dir": ".", "model": "test-model", "cap": "0"},
             follow_redirects=False,
         )
-    assert r.status_code == 200
-    assert "Last sync" in r.text
-    assert "imported" in r.text
+        assert r.status_code == 303
+
+        # Sync runs in a background thread; wait for it to finish (the patched
+        # sync_directory returns immediately, so this completes near-instantly).
+        # The poll stays inside the patch context: the thread only starts after
+        # the response returns, so an exited mock would fall through to the
+        # real sync_directory and hang on samples/.
+        for _ in range(50):
+            if client.app.state.sync_job["done"]:
+                break
+            time.sleep(0.1)
+    assert client.app.state.sync_job["done"]
     assert mock_sync.call_count == 1
+    assert client.app.state.sync_job["summary"] is not None
+    assert client.app.state.sync_job["error"] is None
 
 
 def test_sync_fresh_renders_confirmation(client):
@@ -136,7 +148,13 @@ def test_sync_confirm_with_valid_token(client):
             data={"dir": ".", "model": "", "cap": "0", "fresh": "1", "token": token},
             follow_redirects=False,
         )
-    assert r.status_code == 200
+        assert r.status_code == 303
+
+        for _ in range(50):
+            if client.app.state.sync_job["done"]:
+                break
+            time.sleep(0.1)
+    assert client.app.state.sync_job["done"]
     assert mock_sync.call_count == 1
 
 

@@ -81,9 +81,15 @@ class DuplicateTagError(ValueError):
 
 
 def connect(path: str) -> sqlite3.Connection:
-    """Open a database and enforce foreign keys."""
+    """Open a database and enforce foreign keys.
+
+    WAL lets dashboard reads proceed while a background sync writes;
+    busy_timeout smooths brief write contention between connections.
+    """
     conn = sqlite3.connect(path)
     conn.execute("PRAGMA foreign_keys = ON")
+    conn.execute("PRAGMA journal_mode = WAL")
+    conn.execute("PRAGMA busy_timeout = 5000")
     return conn
 
 

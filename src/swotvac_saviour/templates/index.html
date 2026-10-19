@@ -33,9 +33,7 @@
       <button type="submit" name="fresh" value="1" class="btn-secondary">Fresh sync (wipe all)</button>
     </p>
   </form>
-  {% if sync_result %}
-  <p><strong>Last sync:</strong> {{ sync_result.summary() }}</p>
-  {% endif %}
+  <div id="sync-status" data-state='{{ sync_job | tojson }}'></div>
 </section>
 
 <section>
@@ -58,4 +56,5 @@
   <p class="notice">No documents yet. Run a sync above.</p>
   {% endfor %}
 </section>
+<script src="/static/dashboard.js" defer></script>
 {% endblock %}

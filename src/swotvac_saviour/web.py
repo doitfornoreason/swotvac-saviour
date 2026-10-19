@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sqlite3
+import threading
 from functools import lru_cache
 from pathlib import Path
 from urllib.parse import urlparse
@@ -58,6 +59,65 @@ def create_app(db_path: str | Path, study_dir: str | Path | None = None) -> Fast
     app.state.db_path = str(db_path)
     app.mount("/static", StaticFiles(directory=_PACKAGE_DIR / "static"), name="static")
     app.state.study_dir = str(Path(study_dir)) if study_dir else ""
+    # Background sync job state; mutated by the sync thread, read by handlers.
+    app.state.sync_job = {
+        "running": False,
+        "done": False,
+        "stage": "",
+        "name": "",
+        "tag": "",
+        "question_index": 0,
+        "question_total": 0,
+        "total_docs": 0,
+        "summary": None,
+        "error": None,
+    }
+
+    def _start_sync_job(study_dir: Path, model: str, cap: int, fresh: bool, key: str) -> bool:
+        """Kick off a background sync thread. False if one is already running."""
+        job = app.state.sync_job
+        if job["running"]:
+            return False
+        job.update(
+            running=True, done=False, stage="starting", name="", tag="",
+            question_index=0, question_total=0, total_docs=0,
+            summary=None, error=None,
+        )
+
+        def on_progress(event: dict) -> None:
+            if event.get("stage") == "done":
+                job["summary"] = event["result"].summary()
+                return
+            job["stage"] = event.get("stage", "")
+            for field in ("name", "tag", "question_index", "question_total", "total_docs"):
+                if field in event:
+                    job[field] = event[field]
+
+        def run() -> None:
+            from . import sync as sync_mod
+
+            try:
+                conn = db.connect(app.state.db_path)
+                try:
+                    result = sync_mod.sync_directory(
+                        conn, study_dir,
+                        model=model or transcribe.DEFAULT_MODEL,
+                        cap=max(0, cap), key=key, fresh=fresh,
+                        progress=on_progress,
+                    )
+                finally:
+                    conn.close()
+                app.state.last_sync = result.summary()
+                job["summary"] = result.summary()
+            except Exception as err:  # background thread: report, never crash
+                job["error"] = str(err)
+                app.state.last_sync = f"Sync failed: {err}"
+            finally:
+                job["running"] = False
+                job["done"] = True
+
+        threading.Thread(target=run, name="sync-job", daemon=True).start()
+        return True
 
     def get_db():
         conn = db.connect(db_path)
@@ -84,6 +144,7 @@ def create_app(db_path: str | Path, study_dir: str | Path | None = None) -> Fast
                 "counts": db.queue_counts(conn),
                 "model": db.get_setting(conn, "model") or transcribe.DEFAULT_MODEL,
                 "dir": db.get_setting(conn, "study_dir") or app.state.study_dir,
+                "sync_job": app.state.sync_job,
             },
         )
 
@@ -111,7 +172,17 @@ def create_app(db_path: str | Path, study_dir: str | Path | None = None) -> Fast
                 {"directory": directory, "model": model, "cap": cap,
                  "fresh_token": fresh_token},
             )
-        return _run_sync(request, conn, study_dir, model, cap, fresh=False)
+        if not (key := transcribe.load_api_key(study_dir)):
+            raise HTTPException(
+                status_code=400,
+                detail=f"no OPENROUTER_API_KEY found in {study_dir}/.env",
+            )
+        if model:
+            db.set_setting(conn, "model", model)
+            db.set_setting(conn, "study_dir", str(study_dir))
+            conn.commit()
+        _start_sync_job(study_dir, model, cap, fresh=False, key=key)
+        return RedirectResponse("/", status_code=303)
 
     @app.post("/sync/confirm")
     def sync_confirm(
@@ -127,47 +198,23 @@ def create_app(db_path: str | Path, study_dir: str | Path | None = None) -> Fast
             raise HTTPException(status_code=409, detail="fresh sync token mismatch; start over")
         directory = dir or app.state.study_dir
         study_dir = Path(directory)
-        return _run_sync(request, conn, study_dir, model, cap, fresh=bool(fresh))
-
-    def _run_sync(
-        request: Request,
-        conn: sqlite3.Connection,
-        study_dir: Path,
-        model: str,
-        cap: int,
-        fresh: bool,
-    ):
-        from . import sync as sync_mod
-
-        if model:
-            db.set_setting(conn, "model", model)
-            db.set_setting(conn, "study_dir", str(study_dir))
         if not (key := transcribe.load_api_key(study_dir)):
             raise HTTPException(
                 status_code=400,
                 detail=f"no OPENROUTER_API_KEY found in {study_dir}/.env",
             )
-        try:
-            result = sync_mod.sync_directory(
-                conn, study_dir, model=model or transcribe.DEFAULT_MODEL,
-                cap=max(0, cap), key=key, fresh=fresh,
-            )
-        except NotADirectoryError:
-            raise HTTPException(status_code=400, detail=f"not a directory: {study_dir}")
-        except RuntimeError as err:
-            raise HTTPException(status_code=400, detail=str(err))
-        app.state.last_sync = result.summary()
-        return render(
-            request,
-            "index.html",
-            {
-                "documents": db.list_documents(conn),
-                "tags": db.list_tags(conn),
-                "counts": db.queue_counts(conn),
-                "model": db.get_setting(conn, "model") or transcribe.DEFAULT_MODEL,
-                "sync_result": result,
-            },
-        )
+        if model:
+            db.set_setting(conn, "model", model)
+            db.set_setting(conn, "study_dir", str(study_dir))
+            conn.commit()
+        _start_sync_job(study_dir, model, cap, fresh=bool(fresh), key=key)
+        return RedirectResponse("/", status_code=303)
+
+    # --- sync progress -------------------------------------------------------
+    @app.get("/sync/status")
+    def sync_status():
+        # dict() copy is atomic in CPython; avoids serializing mid-mutation.
+        return dict(app.state.sync_job)
 
     # --- setup ---------------------------------------------------------------
     @app.get("/setup")
