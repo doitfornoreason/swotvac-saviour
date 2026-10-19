@@ -200,3 +200,79 @@ Remaining (for next session):
 2. Phase 3 solutions engine, Phase 6 docs, Phase 7 review + ship — build
    solutions only when the owner says so.
 
+## User feedback (2026-10-19, test run) — TODO
+
+- Dashboard sync form: no progress/status updates while a sync is running;
+  the page appears frozen and loading takes a while.
+- TODO: add live progress feedback (e.g. per-question or per-document status,
+  spinner, streamed updates) to the dashboard sync form. Do not implement
+  until the user finishes the current test run and requests changes.
+
+### Reviewer-2 findings (2026-10-19, live verification)
+
+- 🔴 Parser mis-split: doc 2 ("without solutions") q21–30 all have
+  `page_number=7` and bodies are prior-knowledge summary text
+  ("Summary of some assumed prior knowledge..."), not practice questions.
+  They sit in the play queue. Fix: guard rail in parser for summary/
+  reference pages, and/or manual delete of ids 21–30 in this DB.
+- 🟡 ~26/85 questions carry "suspected truncation" warnings (crop cut
+  mid-sentence). Guard rail catches it but bodies incomplete. Consider
+  higher-DPI re-crop pass.
+- 🔵 `db.connect()` `busy_timeout=5000` too short: while a CLI sync holds
+  the WAL write lock, POST `/play/answer` returns 500 ("database is
+  locked"). Verified root cause; all POSTs 200 post-sync. Fix: longer
+  busy_timeout or retry loop for web writes during sync.
+- 🔵 Path nit: `original_path` stored as the sync process's mount view
+  (`/mnt/Ubuntu/home/mir/...`) vs server's `/home/nine/...` — same inode,
+  works; consider path normalisation.
+- Confirmation: web-UI background sync with progress feedback is the right
+  architecture; CLI serial sync of 13 PDFs took ~2h40m with no output.
+- Remaining sync: 6 PDFs not yet synced (sha-gate skips the done 7).
+
+
+## Session wrap-up (2026-10-19, sync performance + reviewer fixes)
+
+Work completed:
+1. Sync parallelized: `sync_directory` renders all crops on the main thread
+   (pymupdf is not thread-safe), then runs per-question LLM calls in a
+   `ThreadPoolExecutor` (10 workers). DB inserts stay on the main thread in
+   parse order. Live: 191 questions across 6 PDFs in ~17 min (was ~2h40m
+   serial for 13); 191 llm, 0 fallback.
+2. Continuation-aware crops: parser records `end_page` per question;
+   `crop_png_bytes` accepts `continuation` segments (page, end_label) and
+   stacks pixmaps into one PNG. Fixes the cross-page truncation class for
+   questions with a following label. Last question never continues (no
+   bounding label; page-tail junk stays out of the crop).
+3. Summary-page guard rail: `SUMMARY_BOUNDARY_RE` (case-sensitive,
+   punctuation-excluded) treats capitalized Summary/Prerequisites/Prior
+   knowledge/Reference/Formula-sheet headings as back matter. Fixes the
+   reviewer-2 red finding: "Diagnostic-Self-Test without solutions" now
+   parses 10 questions (was 20, 10 fake from the prior-knowledge page).
+   Fake rows 21-30 deleted from the live DB (queue cascaded, 266 = 266).
+4. Progress counter made monotonic: pool completion order is
+   nondeterministic; dashboard now shows a completed-count that never
+   regresses. Progress polling (`/sync/status` + dashboard.js) live-verified
+   end to end (question i/n updates observed).
+5. 73 tests passing (6 new: pool + order preservation, continuation crop
+   spy + stacking, summary boundary, lowercase-prose non-match, end_page).
+
+Known limitation (accepted): `httpx` timeout=120 bounds read gaps, not total
+generation time. One glm-5.3-flash call streamed for ~20 min (guard-rail
+retry doubled a slow reasoning generation); the call did complete. A
+per-question total deadline would leak worker threads — revisit only if
+tails recur. Truncation warnings on newly synced docs are heuristic false
+positives (bodies ending in equations), ~56/266 overall.
+
+Remaining: tag reconciliation (orphaned tag on folder rename); Phase 3
+solutions engine when owner asks; push/publish.
+
+Reviewer round 2 (cavecrew-reviewer over 03dec79): 4 findings fixed in
+place — last spanning question now gets continuation segments (bounded by
+parser end_page), over-inclusion of label-free intermediate pages removed
+(segments gated on end_page), unresolvable continuation bounds skip the
+segment instead of stacking a full page, end-label match takes the lowest
+occurrence (cross-references sit above the real heading), and summary
+headings now skip only their page instead of ending the question pool.
+Accepted: no total-deadline on model calls (leaked-thread tradeoff);
+cross-reference below the real label can still shrink a segment (needs
+label geometry the text parser does not have).

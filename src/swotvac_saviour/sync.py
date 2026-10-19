@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import hashlib
 import sqlite3
+from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -88,6 +90,23 @@ def _parse_deterministic(pdf_path: str, style: str) -> list[dict]:
     return [q.to_dict() for q in questions]
 
 
+def _unique_label(label: str, section: str,
+                  seen: set[tuple[str, str]]) -> str:
+    """Suffix a repeated label ("X (2)", "X (3)") within one document.
+
+    Keeps the UNIQUE(document_id, section, label) index from rejecting a
+    whole document when labels repeat (e.g. an unrecognized solutions
+    section reusing the question numbering).
+    """
+    unique = label
+    n = 2
+    while (section, unique) in seen:
+        unique = f"{label} ({n})"
+        n += 1
+    seen.add((section, unique))
+    return unique
+
+
 def sync_directory(
     conn: sqlite3.Connection,
     directory: str | Path,
@@ -97,6 +116,7 @@ def sync_directory(
     key: str | None = None,
     call: transcribe.ModelCall | None = None,
     fresh: bool = False,
+    progress: Callable[[dict], None] | None = None,
 ) -> SyncResult:
     """Run one sync pass over the study directory. Commits per document."""
     root = Path(directory)
@@ -116,10 +136,30 @@ def sync_directory(
         conn.execute("DELETE FROM documents")
         conn.commit()
 
-    for tag_name, pdfs in discover(root):
+    subjects = discover(root)
+
+    def emit(event: dict) -> None:
+        # A failing progress UI must never break the sync pass itself.
+        if progress is None:
+            return
+        try:
+            progress(event)
+        except Exception:
+            pass
+
+    emit({"stage": "start", "total_docs": len(subjects)})
+
+    for doc_index, (tag_name, pdfs) in enumerate(subjects):
         tag_row_id = db.add_tag_or_get(conn, tag_name)
         for pdf in pdfs:
             display = pdf.name
+            emit({
+                "stage": "document",
+                "name": display,
+                "tag": tag_name,
+                "doc_index": doc_index,
+                "total_docs": len(subjects),
+            })
             try:
                 with open(pdf, "rb") as fh:
                     if fh.read(5) != b"%PDF-":
@@ -141,34 +181,100 @@ def sync_directory(
                 document_id = db.insert_document(
                     conn, display, sha, str(pdf.resolve())
                 )
-                # LLM pass (with per-question crop + deterministic fallback)
+                # LLM pass (with per-question crop + deterministic fallback).
+                # Crops render here on the main thread (pymupdf is not
+                # thread-safe); only the network call runs in the pool.
                 ids: list[int] = []
+                seen_labels: set[tuple[str, str]] = set()
+
+                def _segments(i: int, q: dict) -> list[tuple[int, str | None]]:
+                    """Crop segments: primary region plus continuation pages.
+
+                    The parser's ``end_page`` is the last page that contributed
+                    body lines, so pages between questions (figures, blanks)
+                    are never included. When the next label exists it bounds
+                    the final segment; the last question runs to its page end.
+                    """
+                    nxt = parsed[i + 1] if i + 1 < len(parsed) else None
+                    segments = [
+                        (q["page"], q["label"], nxt["label"] if nxt else None)
+                    ]
+                    end_page = q.get("end_page") or q["page"]
+                    for p in range(q["page"] + 1, end_page + 1):
+                        segments.append(
+                            (p, nxt["label"] if nxt and p == nxt["page"] else None)
+                        )
+                    return segments
+
+                admitted = [(i, q) for i, q in enumerate(parsed)
+                            if cap == 0 or i < cap]
+                crops: dict[int, bytes] = {}
+                for i, q in admitted:
+                    segments = _segments(i, q)
+                    crops[i] = transcribe.crop_png_bytes(
+                        str(pdf), q["page"], q["label"],
+                        segments[0][2],
+                        continuation=segments[1:],
+                    )
+
+                def _attempt(i: int, crop: bytes):
+                    """One LLM transcription; returns (i, outcome) where outcome
+                    is ("llm", result dict) or ("fallback", error)."""
+                    try:
+                        out = transcribe.transcribe_question(
+                            parsed[i]["label"], crop, model=model, key=key,
+                            call=call,
+                        )
+                        return i, "llm", out
+                    except (transcribe.TranscriptionError, RuntimeError) as err:
+                        return i, "fallback", err
+
+                # outcome per question index: None while pending/never run.
+                outcomes: dict[int, tuple] = {}
+                if admitted:
+                    workers = min(10, len(admitted))
+                    with ThreadPoolExecutor(max_workers=workers) as pool:
+                        futures = {
+                            pool.submit(_attempt, i, crops[i]): i
+                            for i, _ in admitted
+                        }
+                        for fut in as_completed(futures):
+                            i, kind, payload = fut.result()
+                            outcomes[i] = (kind, payload)
+                            # Completion order is nondeterministic under the
+                            # pool; report the monotonic completed count so
+                            # the dashboard never shows the index going back.
+                            emit({
+                                "stage": "question",
+                                "name": display,
+                                "question_index": len(outcomes),
+                                "question_total": len(parsed),
+                            })
+
                 for i, q in enumerate(parsed):
                     engine, confidence, warnings = "pymupdf", None, list(q["warnings"])
                     body, body_latex = q["body"], q["body_latex"]
-                    if cap == 0 or i < cap:
-                        crop = transcribe.crop_png_bytes(
-                            str(pdf), q["page"], q["label"],
-                            parsed[i + 1]["label"] if i + 1 < len(parsed) else None,
-                        )
-                        try:
-                            out = transcribe.transcribe_question(
-                                q["label"], crop, model=model, key=key, call=call,
-                            )
-                            engine, confidence = "llm", out["confidence"]
-                            body, body_latex = out["body"], out["body_latex"]
-                            result.llm += 1
-                        except (transcribe.TranscriptionError, RuntimeError) as err:
-                            warnings.append(f"llm transcription failed: {err}")
-                            result.fallback += 1
-                    else:
+                    outcome = outcomes.get(i)
+                    if outcome is None:
                         warnings.append("llm skipped: cost cap reached")
                         result.uncapped += 1
+                    elif outcome[0] == "llm":
+                        out = outcome[1]
+                        engine, confidence = "llm", out["confidence"]
+                        body, body_latex = out["body"], out["body_latex"]
+                        result.llm += 1
+                    else:
+                        warnings.append(
+                            f"llm transcription failed: {outcome[1]}"
+                        )
+                        result.fallback += 1
                     ids.append(
                         db.insert_question(
                             conn, document_id,
                             page_number=q["page"], section=q["section"],
-                            label=q["label"], body=body, body_latex=body_latex,
+                            label=_unique_label(q["label"], q["section"],
+                                                seen_labels),
+                            body=body, body_latex=body_latex,
                             hint=q["hint"], warnings=warnings,
                             engine=engine, confidence=confidence,
                             solution=NO_SOLUTION,
@@ -184,4 +290,5 @@ def sync_directory(
                 # unreadable/corrupt PDFs must not kill the pass
                 conn.rollback()
                 result.failed.append(f"{display}: {err}")
+    emit({"stage": "done", "result": result})
     return result

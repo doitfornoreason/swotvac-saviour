@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+
 import pytest
 
 import swotvac_saviour.sync as sync_mod
@@ -152,3 +154,189 @@ def test_sync_cost_cap_keeps_deterministic_tail(tmp_path, key, transcribed):
         assert "cost cap reached" in rows[1][1]
     finally:
         conn.close()
+
+
+def _make_spanning_pdf(path):
+    """Two pages: Exercise 1.1 starts p1 and continues onto p2."""
+    import fitz
+
+    doc = fitz.open()
+    p1 = doc.new_page()
+    p1.insert_text((72, 700), "Exercise 1.1. first part of the question")
+    p2 = doc.new_page()
+    p2.insert_text((72, 72), "continuation line on page two")
+    p2.insert_text((72, 200), "Exercise 1.2. second question")
+    doc.save(str(path))
+    doc.close()
+
+
+def test_sync_uses_thread_pool_and_keeps_order(tmp_path, key):
+    """Admitted questions transcribe concurrently but insert in parse order."""
+    import threading
+    import time as time_mod
+
+    root = _study_dir(tmp_path, name="Pool Check")
+    booklet = root / "Pool Check" / "booklet.pdf"
+    booklet.unlink()
+    _make_pdf(booklet, [f"Exercise 1.{i}." for i in range(1, 7)])
+
+    threads: set[str] = set()
+
+    def slow_call(messages, model, k):
+        # Real ModelCall contract: takes the message list, returns JSON text.
+        prompt = messages[0]["content"][0]["text"]
+        label = prompt.split('exactly "')[1].split('"')[0]
+        threads.add(threading.current_thread().name)
+        time_mod.sleep(0.05)
+        return json.dumps(_fake_transcribe(label, b"", model=model, key=k))
+
+    conn = _connect(tmp_path)
+    try:
+        result = sync_mod.sync_directory(conn, root, key=key, call=slow_call)
+        assert result.llm == 6
+        assert len(threads) > 1, "expected multiple worker threads"
+        rows = conn.execute(
+            "SELECT label FROM questions ORDER BY id"
+        ).fetchall()
+        assert [r[0] for r in rows] == [
+            "Exercise 1.1.", "Exercise 1.2.", "Exercise 1.3.",
+            "Exercise 1.4.", "Exercise 1.5.", "Exercise 1.6.",
+        ]
+    finally:
+        conn.close()
+
+
+def test_sync_crop_includes_continuation_pages(tmp_path, key, monkeypatch):
+    """A question spanning a page break gets a stacked crop with the tail."""
+    from swotvac_saviour import transcribe as tr
+
+    root = _study_dir(tmp_path, name="Span Check")
+    booklet = root / "Span Check" / "booklet.pdf"
+    booklet.unlink()
+    _make_spanning_pdf(booklet)
+
+    seen: dict[str, list] = {}
+
+    real_crop = tr.crop_png_bytes
+
+    def spy_crop(pdf_path, page_number, start_label, end_label, dpi=150,
+                 continuation=None):
+        seen[start_label] = (page_number, end_label, continuation)
+        return real_crop(pdf_path, page_number, start_label, end_label,
+                         dpi=dpi, continuation=continuation)
+
+    monkeypatch.setattr(tr, "crop_png_bytes", spy_crop)
+
+    def fake(label, crop, *, model, key, call=None, retries=1):
+        return _fake_transcribe(label, crop, model=model, key=key)
+
+    monkeypatch.setattr(tr, "transcribe_question", fake)
+
+    conn = _connect(tmp_path)
+    try:
+        result = sync_mod.sync_directory(conn, root, key=key)
+        assert result.llm == 2
+    finally:
+        conn.close()
+
+    # Exercise 1.1 spans pages: continuation segment for page 2, bounded by
+    # the next label; Exercise 1.2 (last question) gets none.
+    assert seen["Exercise 1.1."][0] == 1
+    assert seen["Exercise 1.1."][2] == [(2, "Exercise 1.2.")]
+    assert seen["Exercise 1.2."][2] in (None, [])
+
+
+def test_crop_png_bytes_stacks_continuation(tmp_path):
+    """Continuation segments render below the primary crop in one PNG."""
+    import fitz
+    from swotvac_saviour import transcribe as tr
+
+    path = tmp_path / "span.pdf"
+    _make_spanning_pdf(path)
+
+    single = tr.crop_png_bytes(str(path), 1, "Exercise 1.1.", None)
+    stacked = tr.crop_png_bytes(
+        str(path), 1, "Exercise 1.1.", None,
+        continuation=[(2, "Exercise 1.2.")],
+    )
+    import pymupdf
+
+    def png_height(blob):
+        with pymupdf.open(stream=blob, filetype="png") as d:
+            return d[0].rect.height
+
+    assert png_height(stacked) > png_height(single)
+
+    import struct
+
+    def png_size(blob):
+        # IHDR at fixed offset; rect() depends on embedded dpi metadata.
+        w, h = struct.unpack(">II", blob[16:24])
+        return w, h
+
+    assert png_size(stacked)[0] == png_size(single)[0]
+
+
+def test_sync_last_question_gets_continuation(tmp_path, key, monkeypatch):
+    """A trailing question whose body spans pages is no longer cut at the
+    first page bottom: segments run to the parser's end_page."""
+    import fitz
+    from swotvac_saviour import transcribe as tr
+
+    root = _study_dir(tmp_path, name="Tail Check")
+    booklet = root / "Tail Check" / "booklet.pdf"
+    booklet.unlink()
+    doc = fitz.open()
+    p1 = doc.new_page()
+    p1.insert_text((72, 700), "Exercise 1.1. starts on page one")
+    p2 = doc.new_page()
+    p2.insert_text((72, 72), "and ends on page two.")
+    doc.save(str(booklet))
+    doc.close()
+
+    seen: dict[str, list] = {}
+    real_crop = tr.crop_png_bytes
+
+    def spy_crop(pdf_path, page_number, start_label, end_label, dpi=150,
+                 continuation=None):
+        seen[start_label] = continuation
+        return real_crop(pdf_path, page_number, start_label, end_label,
+                         dpi=dpi, continuation=continuation)
+
+    monkeypatch.setattr(tr, "crop_png_bytes", spy_crop)
+    monkeypatch.setattr(
+        tr, "transcribe_question",
+        lambda label, crop, *, model, key, call=None, retries=1:
+            _fake_transcribe(label, crop, model=model, key=key),
+    )
+
+    conn = _connect(tmp_path)
+    try:
+        result = sync_mod.sync_directory(conn, root, key=key)
+        assert result.llm == 1
+    finally:
+        conn.close()
+    assert seen["Exercise 1.1."] == [(2, None)]
+
+
+def test_crop_skips_unresolvable_continuation_bound(tmp_path):
+    """A continuation page whose end label can't be found is skipped, not
+    stacked as a full page (which would swallow the next question)."""
+    import fitz
+    import pymupdf
+    from swotvac_saviour import transcribe as tr
+
+    path = tmp_path / "span.pdf"
+    _make_spanning_pdf(path)
+
+    single = tr.crop_png_bytes(str(path), 1, "Exercise 1.1.", None)
+    skipped = tr.crop_png_bytes(
+        str(path), 1, "Exercise 1.1.", None,
+        continuation=[(2, "No Such Label")],
+    )
+
+    def png_size(blob):
+        import struct
+        return struct.unpack(">II", blob[16:24])
+
+    assert png_size(skipped) == png_size(single)

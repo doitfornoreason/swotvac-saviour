@@ -123,3 +123,72 @@ def test_numbered_style_sample():
     assert "MAST20030" not in by_label["Question 4."].body
     # solutions boundary recorded as a warning
     assert any("solutions" in w for w in qs[-1].warnings)
+
+# --- summary/prerequisite boundary + end_page tracking -----------------------
+
+class _FakePage:
+    def __init__(self, number, lines):
+        self.number = number
+        self.lines = lines
+
+
+class _FakeDoc:
+    def __init__(self, pages, sections=None):
+        self.pages = pages
+        self._sections = sections or {}
+
+    def section_for_page(self, number):
+        return self._sections.get(number, "")
+
+
+def _make_doc(pages_lines):
+    return _FakeDoc([_FakePage(i + 1, lines)
+                     for i, lines in enumerate(pages_lines)])
+
+
+def test_summary_heading_skips_page_only():
+    # Numbered summary items on a "Summary of ..." page must not become
+    # questions (regression: Diagnostic-Self-Test prior-knowledge page), but
+    # the pool must continue afterwards: a mid-chapter summary must not
+    # silently drop every later question.
+    doc = _make_doc([
+        ["1. First real question?"],
+        ["Summary of some assumed prior knowledge of complex numbers",
+         "1. If z in C then z = x + iy.",
+         "2. The complex conjugate."],
+        ["3. Third real question?"],
+    ])
+    qs = parser.split_questions(doc, style="number")
+    assert [(q.label, q.page) for q in qs] == [
+        ("Question 1.", 1), ("Question 3.", 3)
+    ]
+    assert qs[0].warnings == []
+    assert qs[0].end_page == 1
+
+
+def test_lowercase_summary_in_body_does_not_end_pool():
+    # Case-sensitive guard: wrapped prose must never match the boundary.
+    doc = _make_doc([
+        ["1. First real question?",
+         "summary of results appears in the appendix",
+         "and more body text follows here."],
+        ["2. Second real question?"],
+    ])
+    qs = parser.split_questions(doc, style="number")
+    assert [q.label for q in qs] == ["Question 1.", "Question 2."]
+
+
+def test_end_page_tracks_page_spanning_questions():
+    doc = _make_doc([
+        ["1. First question starts",
+         "and continues past the page break."],
+        ["more of the first question.",
+         "2. Second question?",
+         "second body."],
+    ])
+    qs = parser.split_questions(doc, style="number")
+    assert [(q.label, q.page, q.end_page) for q in qs] == [
+        ("Question 1.", 1, 2),
+        ("Question 2.", 2, 2),
+    ]
+    assert qs[0].to_dict()["end_page"] == 2

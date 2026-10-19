@@ -35,10 +35,26 @@ HINT_RE = re.compile(r"\[Hint:(.*?)\]", re.DOTALL)
 
 # A page starting a solutions/answers section ends the question pool: solutions
 # are stored separately in a later phase, and their labels repeat the problems'.
+# Back-matter summary/reference pages ("Summary of some assumed prior
+# knowledge of complex numbers"): numbered summary items split as fake
+# questions under the "number" style. Unlike solutions/answers sections these
+# headings only SKIP their own page: a mid-chapter "Summary" must not
+# silently drop every later question. Case-sensitive on purpose: lowercase
+# "summary of the results" inside a question body must not match. Trailing
+# "."/"!"/"?"/":" excluded so wrapped prose never matches mid-question.
+SUMMARY_BOUNDARY_RE = re.compile(
+    r"^\s*(Summary|Prerequisites?|Prior knowledge|Reference|Formula sheet)"
+    r"\b[^.!?:]{0,60}$"
+)
+
+
 SOLUTIONS_BOUNDARY_RE = re.compile(
     r"^\s*[-\u2014=]+\s*(solutions?|answers?)\b"
     r"|^\s*(solutions?|answers?)\s*[-\u2014=]*\s*$"
-    r"|^\s*index\s*$",
+    r"|^\s*index\s*$"
+    # Titled sections ("Diagnostic Test Solutions") end the pool too: their
+    # trailing keyword repeats the question labels that follow.
+    r"|^\s*\w[\w \u2019'\-]{0,60}\s+(solutions?|answers?)\s*[-\u2014=]*\s*$",
     re.IGNORECASE,
 )
 
@@ -53,6 +69,9 @@ class Question:
     body: str = ""
     body_latex: str = ""
     page: int = 0
+    # Last page whose lines contributed to the body; equals ``page`` unless
+    # the question continues past a page break. Drives continuation crops.
+    end_page: int = 0
     section: str = ""
     hint: str | None = None
     warnings: list[str] = field(default_factory=list)
@@ -62,6 +81,7 @@ class Question:
             "label": self.label,
             "section": self.section,
             "page": self.page,
+            "end_page": self.end_page,
             "body": self.body,
             "body_latex": self.body_latex,
             "hint": self.hint,
@@ -84,6 +104,8 @@ def split_questions(doc: ParsedDocument, style: str = "exercise") -> list[Questi
         nonlocal current, body_lines
         if current is None:
             return
+        if current.end_page == 0:
+            current.end_page = current.page
         body = "\n".join(body_lines).strip()
         current.body = body
         hint_match = HINT_RE.search(body)
@@ -125,11 +147,17 @@ def split_questions(doc: ParsedDocument, style: str = "exercise") -> list[Questi
     for page in doc.pages:
         if boundary is not None:
             break
+        summary_skip = False
         for line in page.lines:
             stripped = line.strip()
+            if SUMMARY_BOUNDARY_RE.match(stripped):
+                # Skip this page only; the question pool continues after it.
+                summary_skip = True
+                break
             boundary_match = SOLUTIONS_BOUNDARY_RE.match(stripped)
             if boundary_match:
-                kind = "index" if boundary_match.group(0).lower().lstrip("-= ").startswith("index") else "solutions"
+                lowered = boundary_match.group(0).lower().lstrip("-= ")
+                kind = "index" if lowered.startswith("index") else "solutions"
                 boundary = (page.number, kind)
                 break
             found = match(stripped) if stripped else None
@@ -143,6 +171,10 @@ def split_questions(doc: ParsedDocument, style: str = "exercise") -> list[Questi
                     body_lines.append(found[1])
             elif current is not None:
                 body_lines.append(stripped if stripped else "")
+                current.end_page = page.number
+        if summary_skip and current is not None and current.end_page == page.number:
+            # Header junk on the skipped page must not count as continuation.
+            current.end_page = page.number - 1
 
     flush()
     if boundary is not None and questions:
@@ -150,4 +182,7 @@ def split_questions(doc: ParsedDocument, style: str = "exercise") -> list[Questi
         questions[-1].warnings.append(
             f"{kind} section starts at page {page_no}; later pages skipped"
         )
+        if questions[-1].end_page >= page_no:
+            # Pre-boundary junk on the boundary page is not question body.
+            questions[-1].end_page = page_no - 1
     return questions

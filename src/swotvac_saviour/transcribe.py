@@ -141,21 +141,31 @@ def openrouter_call(messages: list[dict], model: str, key: str) -> str:
     """One chat completion via OpenRouter. Raises RuntimeError on transport/API errors."""
     import httpx  # lazy: keep startup cheap when the LLM engine is unused
 
-    response = httpx.post(
-        API_URL,
-        headers={"Authorization": f"Bearer {key}"},
-        json={"model": model, "messages": messages},
-        timeout=120,
-    )
+    try:
+        response = httpx.post(
+            API_URL,
+            headers={"Authorization": f"Bearer {key}"},
+            json={"model": model, "messages": messages},
+            timeout=120,
+        )
+    except httpx.HTTPError as err:
+        # Transport timeouts / DNS / connection failures surface as a plain
+        # RuntimeError so the per-PDF fallback path in sync.py catches them.
+        raise RuntimeError(f"OpenRouter request failed: {err}") from err
     if response.status_code != 200:
         raise RuntimeError(
             f"OpenRouter {response.status_code}: {response.text[:300]}"
         )
     payload = response.json()
     try:
-        return payload["choices"][0]["message"]["content"]
+        content = payload["choices"][0]["message"]["content"]
     except (KeyError, IndexError, TypeError) as err:
         raise RuntimeError(f"unexpected OpenRouter response: {payload}") from err
+    if not isinstance(content, str) or not content.strip():
+        # Some models return a null/empty content when they refuse or fail;
+        # surface this as a RuntimeError so the sync fallback path catches it.
+        raise RuntimeError(f"OpenRouter returned empty content: {payload}")
+    return content
 
 
 def _extract_json(text: str) -> dict[str, Any]:
@@ -243,8 +253,14 @@ def transcribe_question(
 def crop_png_bytes(
     pdf_path: str, page_number: int, start_label: str, end_label: str | None,
     dpi: int = 150,
+    continuation: list[tuple[int, str | None]] | None = None,
 ) -> bytes:
     """PNG of the region from ``start_label`` to the next label (or page end).
+
+    ``continuation`` lists follow-on ``(page, end_label)`` segments rendered
+    below the primary crop, for questions whose body continues past a page
+    break: each segment runs from the top of its page to ``end_label`` (or the
+    page end). Callers only pass pages the parser saw body lines on.
 
     Falls back to the full page when either label is not found by text search
     (scanned PDFs without a text layer).
@@ -253,17 +269,47 @@ def crop_png_bytes(
 
     doc = pymupdf.open(pdf_path)
     try:
-        page = doc[page_number - 1]
-        starts = page.search_for(start_label)
-        if not starts:
-            return page.get_pixmap(dpi=dpi).tobytes("png")
-        top = starts[0].y0 - 4
-        bottom = page.rect.y1
-        if end_label:
-            ends = page.search_for(end_label)
-            if ends:
-                bottom = ends[0].y0 - 4
-        clip = pymupdf.Rect(0, top, page.rect.x1, max(bottom, top + 10))
-        return page.get_pixmap(dpi=dpi, clip=clip).tobytes("png")
+        pixmaps: list = []
+        for page_no, top_label, bottom_label in [
+            (page_number, start_label, end_label),
+            *[(p, None, lab) for p, lab in (continuation or [])],
+        ]:
+            page = doc[page_no - 1]
+            if top_label is not None:
+                starts = page.search_for(top_label)
+                if not starts:
+                    pixmaps = [page.get_pixmap(dpi=dpi)]
+                    break
+                top = starts[0].y0 - 4
+            else:
+                top = 0
+            bottom = page.rect.y1
+            if bottom_label:
+                ends = page.search_for(bottom_label)
+                if not ends and top_label is None:
+                    # Continuation bound unresolved (label normalized or
+                    # absent): skipping the segment beats stacking the whole
+                    # next question into this crop.
+                    continue
+                if ends:
+                    # Cross-references ("see Exercise 1.2") sit inside the
+                    # body ABOVE the real next label; the lowest match is the
+                    # actual heading.
+                    bottom = ends[-1].y0 - 4
+            clip = pymupdf.Rect(0, top, page.rect.x1, max(bottom, top + 10))
+            pixmaps.append(page.get_pixmap(dpi=dpi, clip=clip))
+        if len(pixmaps) == 1:
+            return pixmaps[0].tobytes("png")
+        # Stack segments vertically into one image (same document => same width).
+        total_h = sum(p.height for p in pixmaps)
+        width = max(p.width for p in pixmaps)
+        stacked = pymupdf.Pixmap(pymupdf.csRGB, pymupdf.IRect(0, 0, width, total_h))
+        stacked.clear_with(255)
+        y = 0
+        for p in pixmaps:
+            p.set_origin(0, y)
+            stacked.copy(p, pymupdf.IRect(0, y, width, y + p.height))
+            y += p.height
+        return stacked.tobytes("png")
     finally:
         doc.close()
