@@ -1,7 +1,7 @@
 [project]
 name = "swotvac-saviour"
 version = "0.1.0"
-description = "Add your description here"
+description = "Study tool: transcribe question PDFs into an LLM-structured practice queue"
 readme = "README.md"
 authors = [
     { name = "CachyOSMir", email = "mirazrai20@gmail.com" }

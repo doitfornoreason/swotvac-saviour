@@ -16,6 +16,30 @@ The deterministic parser still runs first: it supplies structure (question bound
 - [uv](https://docs.astral.sh/uv/)
 - An [OpenRouter](https://openrouter.ai/) API key. Vision-capable models only; the default is `z-ai/glm-5.3-flash` (cheap and capable).
 
+## Installation
+
+Install as a global command from GitHub (no clone needed):
+
+```sh
+uv tool install git+https://github.com/doitfornoreason/swotvac-saviour.git
+```
+
+Or from a local checkout:
+
+```sh
+git clone https://github.com/doitfornoreason/swotvac-saviour.git
+cd swotvac-saviour
+uv tool install .
+```
+
+Either way you get a `swotvac-saviour` command on your PATH. To upgrade later:
+
+```sh
+uv tool upgrade swotvac-saviour
+```
+
+If you are hacking on the source instead, skip the global install and run from the checkout with `uv run swotvac-saviour ...`.
+
 ## Quickstart
 
 Create a study directory: one folder per subject, each holding that subject's question PDFs.
