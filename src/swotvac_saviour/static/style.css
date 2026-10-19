@@ -317,6 +317,12 @@ li { margin: 0.35rem 0; }
   margin-right: 0.35em;
 }
 
+/* All math renders in display mode ($ and $$ alike); inline segments keep
+   their inline-block flow, so kill the .katex-display vertical margins. */
+.question-body .katex-inline .katex-display {
+  margin: 0;
+}
+
 /* $$...$$ blocks render in full display mode. */
 .question-body .katex-display-block {
   display: block;

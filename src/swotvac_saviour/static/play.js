@@ -3,17 +3,18 @@
   "use strict";
 
   function renderMath() {
+    // All math renders in display mode: large operators (integrals, sums),
+    // display-style fractions and limits. Inline and $$ segments look alike.
     document.querySelectorAll(".katex-inline").forEach(function (el) {
       try {
         el.innerHTML = katex.renderToString(el.textContent, {
-          displayMode: false,
+          displayMode: true,
           throwOnError: true,
         });
       } catch (e) {
         el.classList.add("katex-fallback");
       }
     });
-    // $$...$$ blocks render in full display mode (centered, large operators).
     document.querySelectorAll(".katex-display-block").forEach(function (el) {
       try {
         el.innerHTML = katex.renderToString(el.textContent, {
