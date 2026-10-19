@@ -5,7 +5,7 @@ For most students studying maths/physics/cs usually means grinding through pract
 Randomized controlled trials in mathematics have shown that switching from blocked to interleaved practice can boost delayed test averages from 38% to 61%, while university physics students using interleaved study sets have demonstrated up to a 125% median performance improvement on novel, challenging problems. 
 
 
-This is a tool to help you shuffle the questions in your problem sets. `swotvac-saviour` introduces these "desirable difficulties," ensuring you build the durable, adaptable problem-solving skills at a much deeper level.
+`swotvac-saviour` is a tool to help you shuffle the questions in your problem sets, ensuring you build problem-solving skills at a much deeper level.
 
 You can exam question PDFs into a practice deck to play through in the browser. Each question is transcribed by a vision LLM (OpenRouter), stored in SQLite, and served as a stable play queue with resuffle, requeue, and cost caps. Single-user, local-first: your PDFs and database never leave your machine except to call the model provider for transcription.
 
