@@ -106,10 +106,14 @@ def _cmd_sync(args: argparse.Namespace) -> int:
         )
         return 1
     if args.fresh:
-        reply = input(
-            "Fresh sync deletes every question, document and play state "
-            "in the database.\nType 'wipe' to confirm: "
-        )
+        try:
+            reply = input(
+                "Fresh sync deletes every question, document and play state "
+                "in the database.\nType 'wipe' to confirm: "
+            )
+        except EOFError:
+            print("aborted: fresh sync cancelled", file=sys.stderr)
+            return 1
         if reply.strip().lower() != "wipe":
             print("aborted: fresh sync cancelled", file=sys.stderr)
             return 1

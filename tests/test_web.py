@@ -397,3 +397,40 @@ def test_setup_save_sets_default_model(tmp_path):
     conn = db.connect(str(tmp_path / "web.db"))
     assert db.get_setting(conn, "model") == "other/model"
     conn.close()
+
+
+# --- csrf guard ------------------------------------------------------------------
+
+def test_post_with_mismatched_origin_rejected(client):
+    r = client.post(
+        "/play/answer", data={"question_id": "1"},
+        headers={"Origin": "http://evil.example"},
+    )
+    assert r.status_code == 403
+    assert "cross-origin" in r.text
+
+
+def test_post_with_mismatched_referer_rejected(client):
+    r = client.post(
+        "/play/answer", data={"question_id": "1"},
+        headers={"Referer": "http://evil.example/attack"},
+    )
+    assert r.status_code == 403
+
+
+def test_post_same_origin_allowed(client):
+    r = client.post(
+        "/play/answer", data={"question_id": "1"},
+        headers={"Origin": "http://testserver"},
+    )
+    assert r.status_code != 403
+
+
+def test_post_without_origin_allowed(client):
+    r = client.post("/play/answer", data={"question_id": "1"})
+    assert r.status_code != 403
+
+
+def test_get_with_foreign_origin_allowed(client):
+    r = client.get("/", headers={"Origin": "http://evil.example"})
+    assert r.status_code == 200

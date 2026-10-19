@@ -26,6 +26,11 @@ _LABEL_PATTERNS: dict[str, list[tuple[str, re.Pattern[str]]]] = {
 # Default kept for backwards compatibility with direct imports.
 LABEL_PATTERNS = _LABEL_PATTERNS["exercise"]
 
+
+def label_styles() -> list[str]:
+    """Supported question-label styles (public API for CLI/sync)."""
+    return sorted(_LABEL_PATTERNS)
+
 HINT_RE = re.compile(r"\[Hint:(.*?)\]", re.DOTALL)
 
 # A page starting a solutions/answers section ends the question pool: solutions

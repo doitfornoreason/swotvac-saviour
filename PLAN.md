@@ -119,10 +119,17 @@ First-run `--init` flag is superseded by the Phase 5 bare-command boot
 flow; dropped.
 
 ### 5. Phase 7 — final review + ship
-- Run the `caveman-review`/`cavecrew` reviewer pass over the full diff
-  (key handling, LaTeX HTML-injection surface, queue invariants).
-- `caveman-commit` final commit. Optionally publish (`uv tool install` from
-  git works today; PyPI only if wanted).
+Review done 2026-10-19 (`cavecrew-reviewer` over `git diff 7672409..HEAD`).
+Five findings fixed: `.env` written with owner-only `0o600`; CSRF guard
+middleware (POST/PUT/DELETE/PATCH with foreign `Origin`/`Referer` → 403);
+`sync_directory` per-PDF `except Exception` narrowed to
+`OSError/ValueError/RuntimeError/pymupdf.FileDataError` so DB bugs surface;
+`parser.label_styles()` public accessor replaces `_LABEL_PATTERNS` access;
+CLI `--fresh` prompt handles `EOFError` gracefully.
+Two findings rejected as false positives: queue-invariant tests exist
+(`test_play_reshuffle_keeps_past_fixed`, `test_play_requeue_flagged`), so
+the README claim was already accurate. 67 tests passing.
+Remaining: push/publish.
 
 ## Open decision (needs owner input)
 

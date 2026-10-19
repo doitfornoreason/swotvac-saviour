@@ -83,7 +83,11 @@ def save_api_key(study_dir: str | Path, key: str) -> Path:
     lines = ["OPENROUTER_API_KEY=" + key]
     lines += [f"{name}={value}" for name, value in values.items()
               if name != "OPENROUTER_API_KEY"]
-    path.write_text("\n".join(lines) + "\n", encoding="utf8")
+    # Owner-only permissions: the file holds an API key.
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w", encoding="utf8") as fh:
+        fh.write("\n".join(lines) + "\n")
+    os.chmod(path, 0o600)
     return path
 
 

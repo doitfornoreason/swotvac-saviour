@@ -13,6 +13,8 @@ import sqlite3
 from dataclasses import dataclass, field
 from pathlib import Path
 
+import pymupdf
+
 from . import db, normalise, parser, transcribe
 from .ingestion import load_pdf
 
@@ -73,7 +75,7 @@ def _detect_style(pdf_path: str) -> str:
     """Pick the deterministic style that splits this PDF into more questions."""
     doc = load_pdf(pdf_path)
     counts = {}
-    for style in parser._LABEL_PATTERNS:
+    for style in parser.label_styles():
         counts[style] = len(parser.split_questions(doc, style=style))
     return max(counts, key=counts.get)
 
@@ -177,7 +179,9 @@ def sync_directory(
                 conn.commit()
                 result.questions += len(ids)
                 result.imported.append(display)
-            except Exception as err:  # unreadable PDFs must not kill the pass
+            except (OSError, ValueError, RuntimeError,
+                    pymupdf.FileDataError) as err:
+                # unreadable/corrupt PDFs must not kill the pass
                 conn.rollback()
                 result.failed.append(f"{display}: {err}")
     return result

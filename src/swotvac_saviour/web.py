@@ -5,9 +5,10 @@ from __future__ import annotations
 import sqlite3
 from functools import lru_cache
 from pathlib import Path
+from urllib.parse import urlparse
 
 from fastapi import Depends, FastAPI, Form, HTTPException, Request, Response
-from fastapi.responses import RedirectResponse
+from fastapi.responses import PlainTextResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.templating import Jinja2Templates
 
@@ -32,6 +33,28 @@ def create_app(db_path: str | Path, study_dir: str | Path | None = None) -> Fast
         yield
 
     app = FastAPI(title="swotvac-saviour", lifespan=lifespan)
+
+    # CSRF guard: a malicious page in the user's browser can POST to
+    # http://127.0.0.1:8321 without reading responses, so state-changing
+    # endpoints must reject requests whose Origin/Referer host differs from
+    # ours. Same-origin browsers send Origin; curl/scripts send neither.
+    @app.middleware("http")
+    async def csrf_guard(request: Request, call_next):
+        if request.method in ("POST", "PUT", "DELETE", "PATCH"):
+            host = request.headers.get("host", "")
+            bad = False
+            origin = request.headers.get("origin")
+            if origin:
+                bad = urlparse(origin).netloc != host
+            else:
+                referer = request.headers.get("referer")
+                if referer:
+                    bad = urlparse(referer).netloc != host
+            if bad:
+                return PlainTextResponse(
+                    "cross-origin request rejected", status_code=403
+                )
+        return await call_next(request)
     app.state.db_path = str(db_path)
     app.mount("/static", StaticFiles(directory=_PACKAGE_DIR / "static"), name="static")
     app.state.study_dir = str(Path(study_dir)) if study_dir else ""
