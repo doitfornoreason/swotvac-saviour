@@ -276,3 +276,24 @@ headings now skip only their page instead of ending the question pool.
 Accepted: no total-deadline on model calls (leaked-thread tradeoff);
 cross-reference below the real label can still shrink a segment (needs
 label geometry the text parser does not have).
+
+## Session wrap-up (2026-10-19, rendering + play fix)
+
+Work completed:
+1. Play blank-screen fix (3fe35f7): play/reshuffle/requeue returned 200 with
+   an htmx-only HX-Redirect header while play.html uses plain form posts;
+   browsers rendered an empty body. Now real 303 redirects; test tightened
+   to 303.
+2. Rendering engine (df54d74): normalise.render_body() emits finished safe
+   HTML for a body_latex blob - itemize/enumerate become ul/ol (with
+   item[(a)] labels as spans, math inside items still KaTeX), textbf/textit/
+   emph/texttt/underline become strong/em/code/u, $$...$$ blocks render in
+   full display mode via a new .katex-display-block span, everything else
+   stays html-escaped. Templates (play/question/browse) render q.body_html
+   directly; latex_segments kept for legacy. Prompt now teaches the LLM to
+   emit itemize/enumerate + text styles.
+3. Static cache-busting: /static URLs carry ?v=<file mtime>; browsers were
+   serving stale play.js after upgrades (verified live: old copy persisted
+   even across reload).
+4. 86 tests passing (11 new renderer tests). Live-verified q3/q7/q54/q115
+   against the real DB in a browser.
