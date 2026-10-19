@@ -1,6 +1,19 @@
 {% extends "base.html" %}
 {% block title %}Play - swotvac-saviour{% endblock %}
 {% block content %}
+<div class="play-layout">
+<aside class="history" aria-label="Answered questions">
+  <h2>History</h2>
+  {% for h in history %}
+  <a class="history-item" href="/questions/{{ h.id }}">
+    <span class="history-label">{{ h.label }} <em>{{ h.document }}</em></span>
+    <span class="history-text">{{ h.body }}</span>
+  </a>
+  {% else %}
+  <p class="notice">Nothing answered yet.</p>
+  {% endfor %}
+</aside>
+<div class="play-main">
 <div class="play-meta">
   <span class="progress">{{ q.answered }} done &middot; {{ q.position + 1 }} of {{ q.total }}</span>
   {% if q.section %}<span>{{ q.section }}</span>{% endif %}
@@ -27,6 +40,9 @@
   <form method="post" action="/play/answer" class="action-form">
     <input type="hidden" name="question_id" value="{{ q.question_id }}">
     <button type="submit" class="btn-primary" data-shortcut="1">Next</button>
+  </form>
+  <form method="post" action="/play/previous" class="action-form">
+    <button type="submit" class="btn-secondary" data-shortcut="p" {% if not history %}disabled{% endif %}>Previous</button>
   </form>
   <form method="post" action="/play/reshuffle" class="action-form">
     <button type="submit" class="btn-secondary" data-shortcut="q">Reshuffle</button>
@@ -55,5 +71,7 @@
               title="Flag for review">{{ "flagged" if q.state.flagged else "flag" }}</button>
     </form>
   </span>
+</div>
+</div>
 </div>
 {% endblock %}

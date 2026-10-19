@@ -46,6 +46,9 @@
       case "q":
       case "Q":
         press("q"); break;
+      case "p":
+      case "P":
+        press("p"); break;
       case " ":
         press("1"); break;
       default:

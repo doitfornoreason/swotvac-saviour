@@ -272,7 +272,10 @@ def create_app(db_path: str | Path, study_dir: str | Path | None = None) -> Fast
         if current is not None:
             current["body_html"] = normalise.render_body(current["body_latex"])
             current["state"] = db.question_state(conn, current["question_id"])
-            return render(request, "play.html", {"q": current})
+            return render(request, "play.html", {
+                "q": current,
+                "history": db.history_questions(conn),
+            })
         return render(request, "done.html", {"counts": db.queue_counts(conn)})
 
     @app.post("/play/answer")
@@ -284,6 +287,12 @@ def create_app(db_path: str | Path, study_dir: str | Path | None = None) -> Fast
         # answering advances the queue and marks the question attempted
         db.set_question_state(conn, question_id, attempted=True)
         db.advance_queue(conn, question_id)
+        return RedirectResponse("/play", status_code=303)
+
+    @app.post("/play/previous")
+    def play_previous(request: Request, conn=Depends(get_db)):
+        # re-open the most recently answered question as the current one
+        db.previous_question(conn)
         return RedirectResponse("/play", status_code=303)
 
     @app.post("/play/reshuffle")
@@ -354,6 +363,21 @@ def create_app(db_path: str | Path, study_dir: str | Path | None = None) -> Fast
         )
 
     # --- documents --------------------------------------------------------------
+    @app.post("/documents/{doc_id}/play")
+    def document_play(
+        request: Request,
+        doc_id: int,
+        value: int = Form(...),
+        next: str = Form("/browse"),
+        conn=Depends(get_db),
+    ):
+        if value not in (0, 1):
+            raise HTTPException(status_code=400, detail="bad play toggle")
+        if doc_id not in {d["id"] for d in db.list_documents(conn)}:
+            raise HTTPException(status_code=404, detail="no such document")
+        db.set_document_play(conn, doc_id, enabled=bool(value))
+        return RedirectResponse(next or "/browse", status_code=303)
+
     @app.get("/documents/{doc_id}/review")
     def review(request: Request, doc_id: int, conn=Depends(get_db)):
         docs = {d["id"]: d for d in db.list_documents(conn)}

@@ -365,12 +365,6 @@ _STYLE_CMDS = {
     "underline": "u",
 }
 
-_TOKEN_RES = [
-    re.compile(r"\\begin\{(itemize|enumerate)\}"),
-    re.compile(r"\\end\{(itemize|enumerate)\}"),
-    re.compile(r"\\(%s)\{" % "|".join(_STYLE_CMDS)),
-    re.compile(r"\$\$|\$"),
-]
 _ITEM_RE = re.compile(r"\\item(?:\[([^\]]*)\])?")
 
 
@@ -391,9 +385,11 @@ def _list_html(env: str, body_latex: str, begin_end: int) -> tuple[str, int]:
     """
     depth = 1
     j = begin_end
+    begin_re = re.compile(r"\\begin\{((?:itemize|enumerate))\}")
+    end_re = re.compile(r"\\end\{((?:itemize|enumerate))\}")
     while j < len(body_latex):
-        m = _TOKEN_RES[0].search(body_latex, j)  # \begin{...}
-        e = _TOKEN_RES[1].search(body_latex, j)  # \end{...}
+        m = begin_re.search(body_latex, j)
+        e = end_re.search(body_latex, j)
         if e is not None and (m is None or e.start() < m.start()):
             if e.group(1) == env:
                 depth -= 1
@@ -435,8 +431,29 @@ def _math_html(tex: str, display: bool) -> str:
     return f'<span class="{cls}">{_html_escape(tex, quote=False)}</span>'
 
 
+def _escape_prose(text: str) -> str:
+    """Escape prose for HTML and turn source newlines into line breaks.
+
+    Sub-parts in the source sit on their own lines; HTML would collapse them
+    into one run-on paragraph without this.
+    """
+    return _html_escape(text, quote=False).replace("\n", "<br>")
+
+
+def _consume_braced(text: str, i: int) -> int:
+    """Index just past a balanced braced group at i (or i if no brace)."""
+    if i < len(text) and text[i] == "{":
+        return _balanced_end(text, i)
+    return i
+
+
 def _inline_html(body_latex: str) -> str:
-    """Render one run: prose (escaped, styles applied), math spans, lists."""
+    """Render one run: prose (escaped, styles applied), math spans, lists.
+
+    Prose-level commands the list/style handling does not claim are wrapped
+    as KaTeX math ("\\quad" between subparts) or, when structurally junk
+    (stray \\item, unmatched begin/end), dropped or turned into a break.
+    """
     parts: list[str] = []
     prose: list[str] = []
     i = 0
@@ -444,47 +461,58 @@ def _inline_html(body_latex: str) -> str:
 
     def flush() -> None:
         if prose:
-            parts.append(_html_escape("".join(prose), quote=False))
+            parts.append(_escape_prose("".join(prose)))
             prose.clear()
 
     while i < n:
-        tok = None
-        for regex in _TOKEN_RES:
-            m = regex.match(body_latex, i)
-            if m:
-                tok = m
-                break
-        if tok is None:
-            prose.append(body_latex[i])
+        c = body_latex[i]
+        if c == "$":
+            flush()
+            display = body_latex.startswith("$$", i)
+            closer = "$$" if display else "$"
+            end = body_latex.find(closer, i + 2 if display else i + 1)
+            if end == -1:
+                parts.append(_math_html(body_latex[i + len(closer):], display))
+                return "".join(parts)
+            parts.append(_math_html(body_latex[i + len(closer):end], display))
+            i = end + len(closer)
+            continue
+        if c != "\\":
+            prose.append(c)
             i += 1
             continue
-        if tok.lastindex and tok.re.pattern.startswith(r"\\begin"):
+
+        # backslash token: dispatch by kind
+        begin_list = re.match(r"\\begin\{(itemize|enumerate)\}", body_latex[i:])
+        if begin_list:
             flush()
-            html, i = _list_html(tok.group(1), body_latex, tok.end())
+            html, i = _list_html(begin_list.group(1), body_latex, i + begin_list.end())
             parts.append(html)
-        elif tok.group(0).startswith("\\end"):
-            # stray \end without a begin: keep as escaped text
-            prose.append(tok.group(0))
-            i = tok.end()
-        elif tok.group(0).startswith("\\"):
+            continue
+        style = re.match(r"\\(%s)\{" % "|".join(_STYLE_CMDS), body_latex[i:])
+        if style:
             flush()
-            html, i = _style_group_html(tok.group(1), body_latex, i + len(tok.group(0)) - 1)
+            html, i = _style_group_html(style.group(1), body_latex, i + style.end() - 1)
             parts.append(html)
-        else:
-            # $ or $$: math to the matching delimiter (unterminated: to end)
-            display = tok.group(0) == "$$"
+            continue
+        item = re.match(r"\\item(?:\[([^\]]*)\])?", body_latex[i:])
+        if item:
+            # stray \item outside a list environment: break the line
             flush()
-            if display:
-                end = body_latex.find("$$", i + 2)
-            else:
-                end = body_latex.find("$", i + 1)
-            if end == -1:
-                parts.append(_math_html(body_latex[i + (2 if display else 1):], display))
-                return "".join(parts)
-            parts.append(
-                _math_html(body_latex[i + (2 if display else 1):end], display)
-            )
-            i = end + (2 if display else 1)
+            parts.append("<br>")
+            i += item.end()
+            continue
+        env = re.match(r"\\(?:begin|end)\{([a-zA-Z*]+)\}", body_latex[i:])
+        if env:
+            # unknown/unmatched environment wrapper: drop it, keep content
+            i += env.end()
+            continue
+        cmd = re.match(r"\\[a-zA-Z]+", body_latex[i:]) or re.match(r"\\[^a-zA-Z]", body_latex[i:])
+        assert cmd is not None
+        flush()
+        end = _consume_braced(body_latex, i + cmd.end())
+        parts.append(_math_html(body_latex[i:end], display=False))
+        i = end
     flush()
     return "".join(parts)
 
@@ -493,5 +521,5 @@ def _inline_html(body_latex: str) -> str:
 def render_body(body_latex: str) -> str:
     """Full safe-HTML rendering of one question body (see module notes above)."""
     if "$" not in body_latex and "\\" not in body_latex:
-        return _html_escape(body_latex, quote=False)
+        return _escape_prose(body_latex)
     return _inline_html(body_latex)

@@ -81,3 +81,25 @@ def test_nested_math_inside_style_group():
     html = normalise.render_body(r"\emph{note that $x \in A$ always}")
     assert "<em>" in html
     assert '<span class="katex-inline">x \\in A</span>' in html
+
+
+def test_prose_newlines_become_line_breaks():
+    # Subparts in the source sit on their own lines; HTML must not run them
+    # together into one paragraph.
+    html = normalise.render_body("(a) first part\n\n(b) second part")
+    assert html.count("<br>") == 2
+    assert "(a) first part<br><br>(b) second part" in html
+
+
+def test_unknown_prose_commands_render_as_math():
+    html = normalise.render_body("*(a) $x > 1$ \\quad (b) $y < 2$")
+    assert '<span class="katex-inline">\\quad</span>' in html
+    assert "(b)" in html
+    # \quad must not sit in raw prose outside a katex span
+    assert html.count("\\quad") == 1
+
+
+def test_unknown_env_wrappers_dropped_content_kept():
+    html = normalise.render_body("\\begin{center}centered text\\end{center} after")
+    assert "centered text after" in html
+    assert "\\begin" not in html and "\\end" not in html

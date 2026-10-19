@@ -13,7 +13,8 @@ CREATE TABLE IF NOT EXISTS documents (
     filename TEXT NOT NULL,
     sha256 TEXT NOT NULL UNIQUE,
     uploaded_at TEXT NOT NULL DEFAULT (datetime('now')),
-    original_path TEXT NOT NULL
+    original_path TEXT NOT NULL,
+    play_enabled INTEGER NOT NULL DEFAULT 1
 );
 
 CREATE TABLE IF NOT EXISTS tags (
@@ -96,6 +97,13 @@ def connect(path: str) -> sqlite3.Connection:
 def init_db(conn: sqlite3.Connection) -> None:
     """Create all tables; safe to call repeatedly."""
     conn.executescript(SCHEMA)
+    # Migration: per-document play exclusion (existing DBs get the default on).
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(documents)")}
+    if "play_enabled" not in cols:
+        conn.execute(
+            "ALTER TABLE documents "
+            "ADD COLUMN play_enabled INTEGER NOT NULL DEFAULT 1"
+        )
     conn.commit()
 
 
@@ -130,6 +138,34 @@ def insert_document(conn: sqlite3.Connection, filename: str, sha256: str, path: 
         (filename, sha256, path),
     )
     return int(cur.lastrowid)
+
+
+def set_document_play(conn: sqlite3.Connection, document_id: int, enabled: bool) -> None:
+    """Play the document's questions or hide them from the queue.
+
+    Disabling removes its queue rows (history entries with them). Enabling
+    appends its not-yet-answered questions to the tail and shuffles them in
+    with the rest of the current+future queue.
+    """
+    conn.execute(
+        "UPDATE documents SET play_enabled = ? WHERE id = ?",
+        (1 if enabled else 0, document_id),
+    )
+    if not enabled:
+        conn.execute(
+            "DELETE FROM queue WHERE question_id IN "
+            "(SELECT id FROM questions WHERE document_id = ?)",
+            (document_id,),
+        )
+    else:
+        rows = conn.execute(
+            "SELECT id FROM questions WHERE document_id = ? "
+            "AND id NOT IN (SELECT question_id FROM queue)",
+            (document_id,),
+        ).fetchall()
+        append_to_queue(conn, [r[0] for r in rows])
+        reshuffle_queue(conn)
+    conn.commit()
 
 
 def document_by_sha(conn: sqlite3.Connection, sha256: str) -> int | None:
@@ -235,7 +271,8 @@ def list_documents(conn: sqlite3.Connection) -> list[dict]:
     rows = conn.execute(
         """
         SELECT d.id, d.filename, d.sha256, d.uploaded_at,
-               (SELECT COUNT(*) FROM questions q WHERE q.document_id = d.id)
+               (SELECT COUNT(*) FROM questions q WHERE q.document_id = d.id),
+               d.play_enabled
         FROM documents d ORDER BY d.id
         """
     ).fetchall()
@@ -257,6 +294,7 @@ def list_documents(conn: sqlite3.Connection) -> list[dict]:
             "sha256": r[2],
             "uploaded_at": r[3],
             "question_count": r[4],
+            "play_enabled": bool(r[5]),
             "tags": tags_by_doc.get(r[0], []),
         }
         for r in rows
@@ -581,3 +619,54 @@ def browse_questions(
         }
         for r in rows
     ]
+
+
+def history_questions(conn: sqlite3.Connection) -> list[dict]:
+    """Answered questions, most recently answered first (queue past = order)."""
+    rows = conn.execute(
+        """
+        SELECT q.id, q.label, q.body, q.document_id, d.filename, queue.position
+        FROM queue
+        JOIN questions q ON q.id = queue.question_id
+        JOIN documents d ON d.id = q.document_id
+        WHERE queue.answered = 1
+        ORDER BY queue.position DESC
+        """
+    ).fetchall()
+    return [
+        {
+            "id": r[0],
+            "label": r[1],
+            "body": r[2],
+            "document_id": r[3],
+            "document": r[4],
+            "position": r[5],
+        }
+        for r in rows
+    ]
+
+
+def previous_question(conn: sqlite3.Connection) -> int | None:
+    """Re-open the most recently answered question in the play queue.
+
+    Clears its queue answered flag and attempted state; the question becomes
+    the current one again. Returns its id, or None when nothing is answered.
+    """
+    row = conn.execute(
+        """
+        SELECT question_id FROM queue WHERE answered = 1
+        ORDER BY position DESC LIMIT 1
+        """
+    ).fetchone()
+    if row is None:
+        return None
+    question_id = int(row[0])
+    conn.execute(
+        "UPDATE queue SET answered = 0 WHERE question_id = ?", (question_id,)
+    )
+    conn.execute(
+        "UPDATE questions SET attempted = 0, marked = 0 WHERE id = ?",
+        (question_id,),
+    )
+    conn.commit()
+    return question_id
