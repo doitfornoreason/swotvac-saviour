@@ -84,7 +84,10 @@ def create_app(db_path: str | Path, study_dir: str | Path | None = None) -> Fast
         "error": None,
     }
 
-    def _start_sync_job(study_dir: Path, model: str, cap: int, fresh: bool, key: str) -> bool:
+    def _start_sync_job(
+        study_dir: Path, model: str, cap: int, fresh: bool, key: str,
+        only: Path | None = None, force: bool = False,
+    ) -> bool:
         """Kick off a background sync thread. False if one is already running."""
         job = app.state.sync_job
         if job["running"]:
@@ -114,7 +117,7 @@ def create_app(db_path: str | Path, study_dir: str | Path | None = None) -> Fast
                         conn, study_dir,
                         model=model or transcribe.DEFAULT_MODEL,
                         cap=max(0, cap), key=key, fresh=fresh,
-                        progress=on_progress,
+                        progress=on_progress, only=only, force=force,
                     )
                 finally:
                     conn.close()
@@ -368,7 +371,7 @@ def create_app(db_path: str | Path, study_dir: str | Path | None = None) -> Fast
         request: Request,
         doc_id: int,
         value: int = Form(...),
-        next: str = Form("/browse"),
+        next_url: str = Form("/browse", alias="next"),
         conn=Depends(get_db),
     ):
         if value not in (0, 1):
@@ -376,7 +379,36 @@ def create_app(db_path: str | Path, study_dir: str | Path | None = None) -> Fast
         if doc_id not in {d["id"] for d in db.list_documents(conn)}:
             raise HTTPException(status_code=404, detail="no such document")
         db.set_document_play(conn, doc_id, enabled=bool(value))
-        return RedirectResponse(next or "/browse", status_code=303)
+        return RedirectResponse(next_url or "/browse", status_code=303)
+
+    @app.post("/documents/{doc_id}/resync")
+    def document_resync(
+        request: Request,
+        doc_id: int,
+        next_url: str = Form("/browse", alias="next"),
+        conn=Depends(get_db),
+    ):
+        """Wipe and re-transcribe one document, even if the file is unchanged."""
+        doc = next((d for d in db.list_documents(conn) if d["id"] == doc_id), None)
+        if doc is None:
+            raise HTTPException(status_code=404, detail="no such document")
+        study_dir = Path(
+            app.state.study_dir
+            or db.get_setting(conn, "study_dir")
+            or Path(doc["original_path"]).parent.parent
+        )
+        if not (key := transcribe.load_api_key(study_dir)):
+            raise HTTPException(
+                status_code=400,
+                detail=f"no OPENROUTER_API_KEY found in {study_dir}/.env",
+            )
+        model = db.get_setting(conn, "model") or transcribe.DEFAULT_MODEL
+        if not _start_sync_job(
+            study_dir, model, cap=0, fresh=False, key=key,
+            only=Path(doc["original_path"]), force=True,
+        ):
+            raise HTTPException(status_code=409, detail="sync already running")
+        return RedirectResponse(next_url or "/", status_code=303)
 
     @app.get("/documents/{doc_id}/review")
     def review(request: Request, doc_id: int, conn=Depends(get_db)):

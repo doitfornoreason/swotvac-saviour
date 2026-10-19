@@ -8,6 +8,7 @@ import pytest
 
 import swotvac_saviour.sync as sync_mod
 from swotvac_saviour import db, transcribe
+from swotvac_saviour import transcribe as transcribe_mod
 
 
 def _make_pdf(path, labels):
@@ -340,3 +341,67 @@ def test_crop_skips_unresolvable_continuation_bound(tmp_path):
         return struct.unpack(">II", blob[16:24])
 
     assert png_size(skipped) == png_size(single)
+
+
+def test_updated_document_replaces_bank(tmp_path, key, transcribed):
+    """Same folder + same filename + different content = replacement, not append."""
+    root = _study_dir(tmp_path)  # booklet.pdf with Exercise 1.1/1.2
+    conn = _connect(tmp_path)
+    try:
+        assert sync_mod.sync_directory(conn, root, key=key).imported == ["booklet.pdf"]
+        # "update" the file: same name, different content
+        booklet = root / "Functional Analysis" / "booklet.pdf"
+        booklet.unlink()
+        _make_pdf(booklet, ["Exercise 1.1.", "Exercise 1.2.", "Exercise 1.3."])
+        conn.execute("UPDATE queue SET answered = 1")
+        conn.commit()
+        result = sync_mod.sync_directory(conn, root, key=key)
+        assert result.replaced == ["booklet.pdf"]
+        assert result.imported == ["booklet.pdf"]
+        n = conn.execute("SELECT COUNT(*) FROM questions").fetchone()[0]
+        labels = [r[0] for r in conn.execute("SELECT label FROM questions ORDER BY id")]
+        assert n == 3 and labels == ["Exercise 1.1.", "Exercise 1.2.", "Exercise 1.3."]
+        # old queue rows died with the old questions; new ones appended
+        answered = conn.execute("SELECT COUNT(*) FROM queue WHERE answered=1").fetchone()[0]
+        assert answered == 0
+    finally:
+        conn.close()
+
+
+def test_same_name_in_other_folder_is_new_document(tmp_path, key, transcribed):
+    root = _study_dir(tmp_path)
+    other = root / "DEs"
+    other.mkdir()
+    _make_pdf(other / "booklet.pdf", ["Exercise 2.1."])
+    conn = _connect(tmp_path)
+    try:
+        result = sync_mod.sync_directory(conn, root, key=key)
+        assert result.replaced == []
+        assert sorted(result.imported) == ["booklet.pdf", "booklet.pdf"]
+    finally:
+        conn.close()
+
+
+def test_force_resync_replaces_unchanged_document(tmp_path, key, monkeypatch):
+    """Per-document re-sync: sha unchanged, bank still wiped and re-done."""
+    root = _study_dir(tmp_path)
+    conn = _connect(tmp_path)
+    try:
+        sync_mod.sync_directory(conn, root, key=key)
+        before = conn.execute("SELECT id FROM documents").fetchone()[0]
+        calls = []
+        real_transcribe = transcribe_mod.transcribe_question
+
+        def counting(label, crop, *, model, key, call=None, retries=1):
+            calls.append(label)
+            return _fake_transcribe(label, crop, model=model, key=key)
+
+        monkeypatch.setattr(transcribe_mod, "transcribe_question", counting)
+        pdf = root / "Functional Analysis" / "booklet.pdf"
+        result = sync_mod.sync_directory(conn, root, key=key, only=pdf, force=True)
+        assert result.replaced == ["booklet.pdf"]
+        assert result.skipped == []
+        assert len(calls) == 2  # re-transcribed
+        assert conn.execute("SELECT id FROM documents").fetchone()[0] != before
+    finally:
+        conn.close()

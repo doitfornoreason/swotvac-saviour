@@ -175,6 +175,31 @@ def document_by_sha(conn: sqlite3.Connection, sha256: str) -> int | None:
     return int(row[0]) if row else None
 
 
+def document_by_name_and_tag(
+    conn: sqlite3.Connection, filename: str, tag_row_id: int
+) -> int | None:
+    """Document with this filename in this subject folder, if any.
+
+    Same folder + same filename + different content = an updated version of
+    the same document; that identity is what replacement keys off.
+    """
+    row = conn.execute(
+        """
+        SELECT dt.document_id FROM document_tags dt
+        JOIN documents d ON d.id = dt.document_id
+        WHERE d.filename = ? AND dt.tag_id = ?
+        """,
+        (filename, tag_row_id),
+    ).fetchone()
+    return int(row[0]) if row else None
+
+
+def delete_document(conn: sqlite3.Connection, document_id: int) -> None:
+    """Remove a document; queue/questions/tags cascade. Play state dies too."""
+    conn.execute("DELETE FROM documents WHERE id = ?", (document_id,))
+    conn.commit()
+
+
 def insert_question(
     conn: sqlite3.Connection,
     document_id: int,
@@ -272,7 +297,7 @@ def list_documents(conn: sqlite3.Connection) -> list[dict]:
         """
         SELECT d.id, d.filename, d.sha256, d.uploaded_at,
                (SELECT COUNT(*) FROM questions q WHERE q.document_id = d.id),
-               d.play_enabled
+               d.play_enabled, d.original_path
         FROM documents d ORDER BY d.id
         """
     ).fetchall()
@@ -295,6 +320,7 @@ def list_documents(conn: sqlite3.Connection) -> list[dict]:
             "uploaded_at": r[3],
             "question_count": r[4],
             "play_enabled": bool(r[5]),
+            "original_path": r[6],
             "tags": tags_by_doc.get(r[0], []),
         }
         for r in rows

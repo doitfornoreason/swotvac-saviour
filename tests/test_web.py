@@ -454,3 +454,70 @@ def test_post_without_origin_allowed(client):
 def test_get_with_foreign_origin_allowed(client):
     r = client.get("/", headers={"Origin": "http://evil.example"})
     assert r.status_code == 200
+
+
+# --- per-document re-sync -----------------------------------------------------
+
+def test_resync_unknown_document_404(client):
+    r = client.post("/documents/999/resync", follow_redirects=False)
+    assert r.status_code == 404
+
+
+def test_resync_requires_key(client, tmp_path, monkeypatch):
+    """No API key anywhere: the route says so instead of starting a doomed job."""
+    import swotvac_saviour.db as db
+
+    # The developer's repo-root .env would satisfy the real lookup; isolate.
+    monkeypatch.setattr(
+        "swotvac_saviour.transcribe.load_api_key_source",
+        lambda study_dir=None: (None, None),
+    )
+
+    conn = db.connect(str(client.app.state.db_path))
+    try:
+        db.init_db(conn)
+        doc_id = db.insert_document(conn, "test.pdf", "sha-rs", "/tmp/test.pdf")
+        conn.commit()
+    finally:
+        conn.close()
+    client.app.state.study_dir = str(tmp_path)
+    r = client.post("/documents/1/resync", follow_redirects=False)
+    assert r.status_code == 400
+    assert "OPENROUTER_API_KEY" in r.text
+
+
+def test_resync_starts_scoped_job(client, tmp_path, monkeypatch):
+    """Happy path: a scoped, forced sync_directory call starts in background."""
+    import threading
+    import swotvac_saviour.db as db
+    from swotvac_saviour.transcribe import load_api_key
+
+    conn = db.connect(str(client.app.state.db_path))
+    try:
+        db.init_db(conn)
+        doc_id = db.insert_document(conn, "test.pdf", "sha-rs2", str(tmp_path / "study" / "test.pdf"))
+        conn.commit()
+    finally:
+        conn.close()
+    (tmp_path / ".env").write_text("OPENROUTER_API_KEY=sk-or-test")
+    client.app.state.study_dir = str(tmp_path)
+
+    captured = {}
+
+    def fake_sync(conn_, directory, **kwargs):
+        captured.update(kwargs, directory=directory)
+        return _fake_sync_result()
+
+    import swotvac_saviour.web as web_mod
+
+    monkeypatch.setattr(
+        "swotvac_saviour.sync.sync_directory",
+        lambda c, d, **kw: (captured.update(kw, directory=d), _fake_sync_result())[1],
+    )
+    r = client.post("/documents/1/resync", follow_redirects=False)
+    assert r.status_code == 303
+    deadline = time.time() + 5
+    while time.time() < deadline and not captured:
+        time.sleep(0.02)
+    assert captured.get("only") == Path(str(tmp_path / "study" / "test.pdf"))
+    assert captured.get("force") is True

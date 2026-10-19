@@ -34,6 +34,7 @@ def sha256_file(path: str) -> str:
 @dataclass
 class SyncResult:
     imported: list[str] = field(default_factory=list)  # display names
+    replaced: list[str] = field(default_factory=list)  # updated/forced docs
     skipped: list[str] = field(default_factory=list)
     retagged: list[str] = field(default_factory=list)  # sha-gate skips that re-attached a tag
     failed: list[str] = field(default_factory=list)  # unreadable PDFs
@@ -45,6 +46,8 @@ class SyncResult:
 
     def summary(self) -> str:
         parts = [f"{len(self.imported)} imported, {len(self.skipped)} skipped"]
+        if self.replaced:
+            parts.append(f"{len(self.replaced)} replaced: {', '.join(self.replaced)}")
         if self.retagged:
             parts.append(f"{len(self.retagged)} retagged")
         if self.fresh:
@@ -117,8 +120,16 @@ def sync_directory(
     call: transcribe.ModelCall | None = None,
     fresh: bool = False,
     progress: Callable[[dict], None] | None = None,
+    only: Path | None = None,
+    force: bool = False,
 ) -> SyncResult:
-    """Run one sync pass over the study directory. Commits per document."""
+    """Run one sync pass over the study directory. Commits per document.
+
+    ``only`` scopes the pass to one PDF (per-document re-sync); ``force``
+    replaces the existing document bank even when the sha is unchanged
+    (manual re-sync). Normal syncs replace automatically when the same
+    filename appears in the same subject folder with different content.
+    """
     root = Path(directory)
     if not root.is_dir():
         raise NotADirectoryError(str(root))
@@ -137,6 +148,15 @@ def sync_directory(
         conn.commit()
 
     subjects = discover(root)
+    if only is not None:
+        wanted = only.resolve()
+        subjects = [
+            (tag, [p for p in pdfs if p.resolve() == wanted])
+            for tag, pdfs in subjects
+        ]
+        subjects = [(tag, pdfs) for tag, pdfs in subjects if pdfs]
+        if not subjects:
+            raise FileNotFoundError(str(only))
 
     def emit(event: dict) -> None:
         # A failing progress UI must never break the sync pass itself.
@@ -166,8 +186,9 @@ def sync_directory(
                         result.failed.append(display)
                         continue
                 sha = sha256_file(str(pdf))
+                prior = db.document_by_name_and_tag(conn, display, tag_row_id)
                 existing = db.document_by_sha(conn, sha)
-                if existing is not None:
+                if existing is not None and not (force and prior == existing):
                     # sha-gate hit: reuse the existing document, but reconcile
                     # tags in case the subject folder was renamed or moved.
                     if tag_name not in db.tags_for_document(conn, existing):
@@ -176,11 +197,28 @@ def sync_directory(
                         result.retagged.append(display)
                     result.skipped.append(display)
                     continue
+                if prior is not None:
+                    # Updated version of the same file (sha differs), or a
+                    # forced re-sync: the old bank and its play state die
+                    # with the old questions. Keep the play-enabled choice.
+                    old_play = conn.execute(
+                        "SELECT play_enabled FROM documents WHERE id = ?",
+                        (prior,),
+                    ).fetchone()
+                    db.delete_document(conn, prior)
+                    result.replaced.append(display)
+                else:
+                    old_play = None
                 style = _detect_style(str(pdf))
                 parsed = _parse_deterministic(str(pdf), style)
                 document_id = db.insert_document(
                     conn, display, sha, str(pdf.resolve())
                 )
+                if old_play is not None and not old_play[0]:
+                    conn.execute(
+                        "UPDATE documents SET play_enabled = 0 WHERE id = ?",
+                        (document_id,),
+                    )
                 # LLM pass (with per-question crop + deterministic fallback).
                 # Crops render here on the main thread (pymupdf is not
                 # thread-safe); only the network call runs in the pool.
