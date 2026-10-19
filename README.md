@@ -1,6 +1,6 @@
 # swotvac-saviour
 
-Turn exam question PDFs into a practice deck you can play through in the browser. Each question is transcribed by a vision LLM (OpenRouter), stored in SQLite, and served as a stable play queue with resuffle, requeue, and cost caps. Single-user, local-first: your PDFs and database never leave your machine except to call the model provider.
+Turn exam question PDFs into a practice deck you can play through in the browser. Each question is transcribed by a vision LLM (OpenRouter), stored in SQLite, and served as a stable play queue with resuffle, requeue, and cost caps. Single-user, local-first: your PDFs and database never leave your machine except to call the model provider for transcription.
 
 ## How it works
 
