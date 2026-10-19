@@ -8,14 +8,23 @@ sync wipes documents/questions/state and re-parses everything.
 
 from __future__ import annotations
 
+import hashlib
 import sqlite3
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from . import db, importer, normalise, parser, transcribe
+from . import db, normalise, parser, transcribe
 from .ingestion import load_pdf
 
 NO_SOLUTION = db.NO_SOLUTION
+
+
+def sha256_file(path: str) -> str:
+    hasher = hashlib.sha256()
+    with open(path, "rb") as fh:
+        for chunk in iter(lambda: fh.read(1 << 20), b""):
+            hasher.update(chunk)
+    return hasher.hexdigest()
 
 
 @dataclass
@@ -84,7 +93,7 @@ def sync_directory(
     model: str = transcribe.DEFAULT_MODEL,
     cap: int = 0,
     key: str | None = None,
-    call: transcribe.ModelCall = transcribe.openrouter_call,
+    call: transcribe.ModelCall | None = None,
     fresh: bool = False,
 ) -> SyncResult:
     """Run one sync pass over the study directory. Commits per document."""
@@ -114,7 +123,7 @@ def sync_directory(
                     if fh.read(5) != b"%PDF-":
                         result.failed.append(display)
                         continue
-                sha = importer.sha256_file(str(pdf))
+                sha = sha256_file(str(pdf))
                 existing = db.document_by_sha(conn, sha)
                 if existing is not None:
                     # sha-gate hit: reuse the existing document, but reconcile

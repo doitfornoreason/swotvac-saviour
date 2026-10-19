@@ -11,7 +11,7 @@ from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.templating import Jinja2Templates
 
-from . import db, importer, normalise, parser, transcribe
+from . import db, normalise, parser, transcribe
 from .ingestion import load_pdf
 
 _PACKAGE_DIR = Path(__file__).resolve().parent

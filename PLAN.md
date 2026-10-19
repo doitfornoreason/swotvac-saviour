@@ -84,13 +84,16 @@ landed as `7a1bc27`. Next work starts at item 2 (Phase 4 remainder).
   generated; same guard rails + confidence column treatment.
 
 ### 2. Phase 4 — tag rename, CLI parity, dead code
-- Known live repro: renaming a subject folder orphans the old tag and mints
-  an empty new one (sha gate skips the PDF). Fix: reconcile by matching the
-  PDF set per folder, or offer a `tag rename` action in the UI.
-- CLI: add `sync` subcommand mirroring the web form (directory, model, cap,
-  fresh). Web form remains primary.
-- Dead code sweep: `importer.import_pdf` is now legacy — decide delete vs
-  keep for the `import` CLI command; remove whichever is unused.
+Done 2026-10-19: CLI `sync` subcommand added (`swotvac-saviour sync <dir>`
+with `--model`, `--cap`, `--fresh` with wipe confirmation, default DB
+`<dir>/.database/swotvac.db`); live-verified 7/7 LLM transcription.
+`importer.import_pdf` and the `import` CLI command deleted (LLM-less import
+contradicted the product decision); `sha256_file` moved into `sync.py`;
+`importer.py` removed.
+Remaining: full tag reconciliation — renaming a subject folder still leaves
+the orphaned old tag attached (sha gate re-attaches the new folder tag but
+the old one lingers). Reconcile by matching the PDF set per folder, or offer
+a `tag rename` action in the UI.
 
 ### 3. Phase 5 — onboarding: bare-command boot (confirmed design)
 - `swotvac-saviour` with no args: make subcommand optional in
@@ -167,11 +170,26 @@ Work completed this session:
    sha now re-attach the current folder's tag if renamed,
    `SyncResult.retagged` added, summary reports it. 43 tests passing.
 
-Next session should:
-1. Phase 5 onboarding: bare-command boot flow + web `/setup` page (design
-   locked above; confirmed 2026-10-19).
-2. Phase 4 remainder: CLI `sync` subcommand parity with web form, then the
-   `importer.import_pdf` dead-code decision.
-3. Phase 6 (docs) and Phase 3/7 (solutions engine, review, ship) as per the
-   roadmap above — solutions engine build only when the owner says so.
+## Session wrap-up (2026-10-19, continued)
+
+Work completed:
+1. `80d425e`: Phase 5 onboarding shipped — bare `swotvac-saviour` boot flow
+   (study-dir prompt, `<dir>/.database/` creation, uvicorn on 8321,
+   clickable link print) and web `/setup` page (key entry writes
+   `<study-dir>/.env`; default model saved to settings). 53 tests.
+2. Phase 4 remainder: CLI `sync` subcommand (positional directory, `--db`
+   default `<dir>/.database/swotvac.db`, `--model`, `--cap` clamped to 0+,
+   `--fresh` requires typing `wipe`); live-verified real OpenRouter sync
+   7/7 questions, tag `MATH`, queue filled. Found + fixed missing
+   `db.init_db` in the CLI path.
+3. Dead code: `importer.py` deleted along with the `import` CLI command
+   (LLM-less import contradicted locked decisions); `sha256_file` moved to
+   `sync.py`; importer-pinned `test_db` tests replaced by `test_sync.py`
+   (LLM rows, sha gate, retag-on-rename, guard-rail fallback, cost cap).
+   62 tests passing.
+
+Remaining (for next session):
+1. Tag reconciliation: renamed folder still leaves the orphaned old tag.
+2. Phase 3 solutions engine, Phase 6 docs, Phase 7 review + ship — build
+   solutions only when the owner says so.
 

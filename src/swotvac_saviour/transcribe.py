@@ -187,7 +187,7 @@ def transcribe_question(
     *,
     model: str,
     key: str,
-    call: ModelCall = openrouter_call,
+    call: ModelCall | None = None,
     retries: int = 1,
 ) -> dict[str, Any]:
     """Transcribe one question crop. Returns {label, body, body_latex, confidence}.
@@ -217,7 +217,7 @@ def transcribe_question(
                     ),
                 }
             ]
-        text = call(messages, model, key)
+        text = (call or openrouter_call)(messages, model, key)
         try:
             result = _extract_json(text)
         except (ValueError, json.JSONDecodeError) as err:
