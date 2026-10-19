@@ -183,7 +183,9 @@ def test_play_answer_advances_queue(client, conn):
     _, ids = _seed_document(conn2, n=1)
     conn2.close()
     r = client.post("/play/answer", data={"question_id": ids[0]}, follow_redirects=False)
-    assert r.status_code in (200, 303)
+    # 303 (not 200): the play page uses plain form posts, so an empty-body
+    # 200 with an htmx-only header renders a blank screen in the browser.
+    assert r.status_code == 303
     conn3 = db.connect(str(client.app.state.db_path))
     assert db.queue_counts(conn3)["answered"] == 1
     conn3.close()

@@ -273,17 +273,17 @@ def create_app(db_path: str | Path, study_dir: str | Path | None = None) -> Fast
         # answering advances the queue and marks the question attempted
         db.set_question_state(conn, question_id, attempted=True)
         db.advance_queue(conn, question_id)
-        return Response(headers={"HX-Redirect": "/play"})
+        return RedirectResponse("/play", status_code=303)
 
     @app.post("/play/reshuffle")
     def play_reshuffle(request: Request, conn=Depends(get_db)):
         db.reshuffle_queue(conn)
-        return Response(headers={"HX-Redirect": "/play"})
+        return RedirectResponse("/play", status_code=303)
 
     @app.post("/play/requeue")
     def play_requeue(request: Request, conn=Depends(get_db)):
         db.requeue_flagged(conn)
-        return Response(headers={"HX-Redirect": "/play"})
+        return RedirectResponse("/play", status_code=303)
 
     # --- question view (browse detail + state toggles) ------------------------
     def _question_view(request: Request, conn: sqlite3.Connection, question_id: int):
