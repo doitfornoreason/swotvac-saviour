@@ -12,9 +12,7 @@
 </div>
 
 <article class="question-body">
-  {% for kind, text in q.segments %}
-    {% if kind == "prose" %}{{ text }}{% else %}<span class="katex-inline">{{ text }}</span>{% endif %}
-  {% endfor %}
+  {{ q.body_html | safe }}
   {% if q.hint %}<p class="hint">Hint: {{ q.hint }}</p>{% endif %}
 </article>
 

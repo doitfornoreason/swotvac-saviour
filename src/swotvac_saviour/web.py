@@ -19,6 +19,17 @@ from .ingestion import load_pdf
 _PACKAGE_DIR = Path(__file__).resolve().parent
 templates = Jinja2Templates(directory=str(_PACKAGE_DIR / "templates"))
 
+
+def _static_v(name: str) -> str:
+    """Cache-busting version: static file mtime (edit => new URL)."""
+    try:
+        return str(int((_PACKAGE_DIR / "static" / name).stat().st_mtime))
+    except OSError:
+        return "0"
+
+
+templates.env.globals["static_v"] = _static_v
+
 STYLES = ("exercise", "number")
 
 
@@ -259,7 +270,7 @@ def create_app(db_path: str | Path, study_dir: str | Path | None = None) -> Fast
     def play(request: Request, conn=Depends(get_db)):
         current = db.current_queue_question(conn)
         if current is not None:
-            current["segments"] = normalise.latex_segments(current["body_latex"])
+            current["body_html"] = normalise.render_body(current["body_latex"])
             current["state"] = db.question_state(conn, current["question_id"])
             return render(request, "play.html", {"q": current})
         return render(request, "done.html", {"counts": db.queue_counts(conn)})
@@ -290,7 +301,7 @@ def create_app(db_path: str | Path, study_dir: str | Path | None = None) -> Fast
         q = db.get_question(conn, question_id)
         if q is None:
             raise HTTPException(status_code=404, detail="no such question")
-        q["segments"] = normalise.latex_segments(q["body_latex"])
+        q["body_html"] = normalise.render_body(q["body_latex"])
         return render(request, "question.html", {"q": q})
 
     @app.get("/questions/{question_id}")
@@ -330,7 +341,7 @@ def create_app(db_path: str | Path, study_dir: str | Path | None = None) -> Fast
             attempted_unmarked=bool(unmarked),
         )
         for q in questions:
-            q["segments"] = normalise.latex_segments(q["body_latex"])
+            q["body_html"] = normalise.render_body(q["body_latex"])
         return render(
             request,
             "browse.html",

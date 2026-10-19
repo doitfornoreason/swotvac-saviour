@@ -13,6 +13,17 @@
         el.classList.add("katex-fallback");
       }
     });
+    // $$...$$ blocks render in full display mode (centered, large operators).
+    document.querySelectorAll(".katex-display-block").forEach(function (el) {
+      try {
+        el.innerHTML = katex.renderToString(el.textContent, {
+          displayMode: true,
+          throwOnError: true,
+        });
+      } catch (e) {
+        el.classList.add("katex-fallback");
+      }
+    });
   }
 
   function currentFocused() {

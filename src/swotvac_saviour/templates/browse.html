@@ -41,9 +41,7 @@
   </div>
   {% if q.section %}<p class="notice">{{ q.section }}</p>{% endif %}
   <a class="browse-preview" href="/questions/{{ q.id }}">
-    {% for kind, text in q.segments %}
-      {% if kind == "prose" %}{{ text }}{% else %}<span class="katex-inline">{{ text }}</span>{% endif %}
-    {% endfor %}
+    {{ q.body_html | safe }}
   </a>
   {% if q.attempted or q.marked or q.flagged %}
   <p>

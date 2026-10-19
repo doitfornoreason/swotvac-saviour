@@ -291,3 +291,28 @@ li { margin: 0.35rem 0; }
   margin-top: var(--space-2);
 }
 .browse-preview:hover { color: var(--color-accent); text-decoration: none; }
+
+/* List environments (itemize/enumerate) rendered from body_latex. */
+.question-body .q-list {
+  margin: 0.6em 0;
+  padding-left: 2em;
+}
+.question-body .q-list li {
+  margin: 0.25em 0;
+}
+.question-body .item-tag {
+  font-weight: 600;
+  margin-right: 0.35em;
+}
+
+/* $$...$$ blocks render in full display mode. */
+.question-body .katex-display-block {
+  display: block;
+  margin: 0.8em 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  text-align: center;
+}
+.question-body .katex-display-block .katex-display {
+  margin: 0;
+}

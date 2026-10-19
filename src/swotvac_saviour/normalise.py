@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 from functools import lru_cache
+from html import escape as _html_escape
 
 # Ligatures produced by PDF text extraction.
 LIGATURES: dict[str, str] = {
@@ -342,3 +343,155 @@ def _legacy_segments(body_latex: str) -> list[tuple[str, str]]:
     return segments
 
 
+
+
+# --- body rendering: body_latex -> safe HTML ---------------------------------
+#
+# The stored body_latex mixes prose, $...$/$$...$$ math, text-style commands
+# (\textbf, \textit, \emph, ...) and list environments (\begin{itemize}).
+# latex_segments only understands $-delimiters, so lists and text styles fell
+# through as raw text. render_body produces finished HTML instead: everything
+# it does not understand stays escaped, everything it emits is escaped itself.
+
+_LIST_ENVS = {"itemize": "ul", "enumerate": "ol"}
+
+# Text-style commands -> HTML elements. KaTeX has no notion of document-level
+# text styling, so these only make sense in prose runs.
+_STYLE_CMDS = {
+    "textbf": "strong",
+    "textit": "em",
+    "emph": "em",
+    "texttt": "code",
+    "underline": "u",
+}
+
+_TOKEN_RES = [
+    re.compile(r"\\begin\{(itemize|enumerate)\}"),
+    re.compile(r"\\end\{(itemize|enumerate)\}"),
+    re.compile(r"\\(%s)\{" % "|".join(_STYLE_CMDS)),
+    re.compile(r"\$\$|\$"),
+]
+_ITEM_RE = re.compile(r"\\item(?:\[([^\]]*)\])?")
+
+
+def _style_group_html(cmd: str, body_latex: str, open_brace: int) -> tuple[str, int]:
+    """HTML for one \textbf{...}-style group; returns (html, next_index)."""
+    end = _balanced_end(body_latex, open_brace)
+    inner = _inline_html(body_latex[open_brace + 1:end - 1])
+    tag = _STYLE_CMDS[cmd]
+    return f"<{tag}>{inner}</{tag}>", end
+
+
+def _list_html(env: str, body_latex: str, begin_end: int) -> tuple[str, int]:
+    """HTML for one itemize/enumerate environment; returns (html, next_index).
+
+    The environment runs to the matching \\end (depth-counted for nesting) or,
+    if unmatched, to the end of the text. Items may contain $math$, text
+    styles and nested lists.
+    """
+    depth = 1
+    j = begin_end
+    while j < len(body_latex):
+        m = _TOKEN_RES[0].search(body_latex, j)  # \begin{...}
+        e = _TOKEN_RES[1].search(body_latex, j)  # \end{...}
+        if e is not None and (m is None or e.start() < m.start()):
+            if e.group(1) == env:
+                depth -= 1
+                if depth == 0:
+                    content = body_latex[begin_end:e.start()]
+                    j = e.end()
+                    break
+                j = e.end()
+            else:
+                j = e.end()
+            continue
+        if m is not None:
+            if m.group(1) == env:
+                depth += 1
+            j = m.end()
+            continue
+        j = len(body_latex)
+    else:
+        content = body_latex[begin_end:]
+        j = len(body_latex)
+
+    matches = list(_ITEM_RE.finditer(content))
+    if not matches:
+        rendered = [f"<li>{_inline_html(content.strip())}</li>"]
+    else:
+        rendered = []
+        for k, m in enumerate(matches):
+            start = m.end()
+            stop = matches[k + 1].start() if k + 1 < len(matches) else len(content)
+            body = _inline_html(content[start:stop])
+            if m.group(1):
+                body = f'<span class="item-tag">{_inline_html(m.group(1))}</span> {body}'
+            rendered.append(f"<li>{body}</li>")
+    return f"<{_LIST_ENVS[env]} class=\"q-list\">{''.join(rendered)}</{_LIST_ENVS[env]}>", j
+
+
+def _math_html(tex: str, display: bool) -> str:
+    cls = "katex-display-block" if display else "katex-inline"
+    return f'<span class="{cls}">{_html_escape(tex, quote=False)}</span>'
+
+
+def _inline_html(body_latex: str) -> str:
+    """Render one run: prose (escaped, styles applied), math spans, lists."""
+    parts: list[str] = []
+    prose: list[str] = []
+    i = 0
+    n = len(body_latex)
+
+    def flush() -> None:
+        if prose:
+            parts.append(_html_escape("".join(prose), quote=False))
+            prose.clear()
+
+    while i < n:
+        tok = None
+        for regex in _TOKEN_RES:
+            m = regex.match(body_latex, i)
+            if m:
+                tok = m
+                break
+        if tok is None:
+            prose.append(body_latex[i])
+            i += 1
+            continue
+        if tok.lastindex and tok.re.pattern.startswith(r"\\begin"):
+            flush()
+            html, i = _list_html(tok.group(1), body_latex, tok.end())
+            parts.append(html)
+        elif tok.group(0).startswith("\\end"):
+            # stray \end without a begin: keep as escaped text
+            prose.append(tok.group(0))
+            i = tok.end()
+        elif tok.group(0).startswith("\\"):
+            flush()
+            html, i = _style_group_html(tok.group(1), body_latex, i + len(tok.group(0)) - 1)
+            parts.append(html)
+        else:
+            # $ or $$: math to the matching delimiter (unterminated: to end)
+            display = tok.group(0) == "$$"
+            flush()
+            if display:
+                end = body_latex.find("$$", i + 2)
+            else:
+                end = body_latex.find("$", i + 1)
+            if end == -1:
+                parts.append(_math_html(body_latex[i + (2 if display else 1):], display))
+                return "".join(parts)
+            parts.append(
+                _math_html(body_latex[i + (2 if display else 1):end], display)
+            )
+            i = end + (2 if display else 1)
+    flush()
+    return "".join(parts)
+
+
+@lru_cache(maxsize=2048)
+def render_body(body_latex: str) -> str:
+    """Full safe-HTML rendering of one question body (see module notes above)."""
+    if "$" not in body_latex and "\\" not in body_latex:
+        return _html_escape(body_latex, quote=False)
+    return _inline_html(body_latex)

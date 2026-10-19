@@ -188,7 +188,10 @@ Return ONLY a JSON object with exactly these keys:
 - "body_latex": the same text as KaTeX-safe LaTeX: plain prose may stay plain,
   math wrapped in $...$ (inline) or $$...$$ (display equation) delimiters,
   written with LaTeX commands (e.g. $\\frac{{a}}{{b}}$, $$\\sum_{{i=1}}^n$$), no
-  HTML, balanced braces, every $ opened must be closed
+  HTML, balanced braces, every $ opened must be closed.
+  Lists in the source become \\begin{{itemize}}/\\item (optionally \\item[(a)])
+  or \\begin{{enumerate}}/\\item blocks. Bold/italic emphasis becomes
+  \\textbf{{...}} / \\textit{{...}} / \\emph{{...}} in prose.
 - "confidence": a number from 0 to 1 estimating transcription fidelity
 Rules: transcribe faithfully, never solve the question, never add hints,
 never paraphrase or omit sub-parts. If the crop is cut off, transcribe what is
