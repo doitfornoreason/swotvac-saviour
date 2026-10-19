@@ -177,6 +177,18 @@ Work completed this session:
    sha now re-attach the current folder's tag if renamed,
    `SyncResult.retagged` added, summary reports it. 43 tests passing.
 
+## Session wrap-up (2026-10-19, play UI polish)
+
+Work completed (7d34f25):
+1. History rail pinned to the page's left edge (`position: fixed`, 250px,
+   scrolls independently; stacks on narrow screens via body.play class
+   hook added to base.html).
+2. Play page question sheet drops the 52rem reading cap (body.play main
+   max-width none) - full remaining width.
+3. Topic/section line removed from /play and /questions detail: the
+   student must not see what topic they are being tested on. Browse keeps
+   it (explicit browsing tool).
+
 ## Session wrap-up (2026-10-19, continued)
 
 Work completed:
