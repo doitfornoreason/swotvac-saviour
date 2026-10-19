@@ -313,3 +313,19 @@ Work completed (bfb0652, 92 tests):
    dashboard): Queue sources checkboxes; disable removes the doc's queue
    rows, re-enable appends unanswered ones to the tail + reshuffles future.
    documents.play_enabled migrated in init_db for existing DBs.
+
+## Session wrap-up (2026-10-19, document updates)
+
+Work completed (a380b72, 98 tests):
+1. Auto-replace: same subject folder + same filename + different sha =
+   replacement during any sync. Old questions, queue rows and play state
+   cascade (FK); new bank re-transcribes and appends to the tail;
+   play_enabled carries over; SyncResult.replaced reports it.
+   Same filename in a DIFFERENT folder stays a new document.
+2. Per-document re-sync on Browse (Queue sources [re-sync] button):
+   POST /documents/<id>/resync -> scoped forced sync (only=<pdf>,
+   force=True), bypasses the sha gate for re-transcription after prompt/
+   renderer changes. Uses the saved model + study dir; 409 if a sync is
+   already running. Live-verified end to end (Topic4: 7/7 llm, replaced).
+3. next form param renamed next_url (alias next): shadowed the builtin
+   next() inside the resync route.
