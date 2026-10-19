@@ -112,11 +112,11 @@ a `tag rename` action in the UI.
   link choice).
 
 ### 4. Phase 6 — docs
-- README rewrite: folder layout, `.env` key setup, first-run flow, sync/play/
-  browse usage, cost cap, privacy note (PDFs leave the machine to the model
-  provider). Use the `writing-guidelines` skill for tone.
-- First-run `--init` flag (writes `.env` skeleton, creates `.database/`) is
-  superseded by the Phase 5 bare-command boot flow; drop it.
+Done 2026-10-19: README rewritten (`46a3065`) per `writing-guidelines`:
+folder layout, `.env` key setup via `/setup`, first-run boot flow,
+sync/play usage, CLI `sync` parity, cost cap, privacy note.
+First-run `--init` flag is superseded by the Phase 5 bare-command boot
+flow; dropped.
 
 ### 5. Phase 7 — final review + ship
 - Run the `caveman-review`/`cavecrew` reviewer pass over the full diff
