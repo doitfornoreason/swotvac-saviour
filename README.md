@@ -1,8 +1,9 @@
 # swotvac-saviour
 
-For most students studying maths/physics/cs usually means grinding through practice sets. More often than not, these practice sets contain questions that are grouped by topic (eg: lecturer goes through topic X this week, and releases a problem set for the week on topic X). This is known as "blocked practice" (in blocks). Decades of cognitice research demonstrates that randomising/shuffling questions (Interleaved practice) is significantly more effective for improving problem-solving. Why? it forces the student to independently identify the correct problem solving tools and techniques tools required, developing a deeper understanding of the strategy (when its needed and why) rather than blindly applying a known formula/algorithm to a predictable sequence of problems. 
+For most students studying maths/physics/cs usually means grinding through practice sets. More often than not, these practice sets contain questions that are grouped by topic (eg: lecturer goes through topic X this week, and releases a problem set for the week on topic X). This is known as "blocked practice" (in blocks). Decades of cognitive research demonstrates that randomising/shuffling questions (Interleaved practice) is significantly more effective for improving problem-solving. Why? it forces the student to independently identify the correct problem solving tools and techniques tools required, developing a deeper understanding of the strategy (when its needed and why) rather than blindly applying a known formula/algorithm to a predictable sequence of problems. 
 
-Randomized controlled trials in mathematics have shown that switching from blocked to interleaved practice can boost delayed test averages from 38% to 61%, while university physics students using interleaved study sets have demonstrated up to a 125% median performance improvement on novel, challenging problems. (Refs at the bottom for those who are interested)
+Randomized controlled trials in mathematics have shown that switching from blocked to interleaved practice can boost delayed test averages from 38% to 61%, while university physics students using interleaved study sets have demonstrated up to a 125% median performance improvement on novel, challenging problems. 
+
 
 This is a tool to help you shuffle the questions in your problem sets. `swotvac-saviour` introduces these "desirable difficulties," ensuring you build the durable, adaptable problem-solving skills at a much deeper level.
 
@@ -112,10 +113,4 @@ Question crops are sent to OpenRouter for transcription and to no one else. Docu
 uv run pytest
 ```
 
-The test suite covers the parser, guard rails, queue invariants, and CLI/web wiring; it makes no live API calls. For a live smoke test, create a study directory under `/tmp`, copy a `.env` with your key into it, and run a sync. Sample PDFs live in `samples/`.
-# References to studies that inspired this project
-Rohrer, D., Dedrick, R. F., Hartwig, M. K., & Cheung, C.-N. (2020). A randomized controlled trial of interleaved mathematics practice. Journal of Educational Psychology, 112(1), 40–52.
-Samani, J., & Pan, S. C. (2021). Interleaved practice enhances memory and problem-solving ability in undergraduate physics. npj Science of Learning, 6(1).
-Rohrer, D., Dedrick, R. F., & Burgess, K. (2014). The benefit of interleaved mathematics practice is not limited to superficially similar kinds of problems. Psychonomic Bulletin & Review, 21(5), 1323–1330.
-Kornell, N., & Bjork, R. A. (2008). Learning concepts and categories: Is spacing the "enemy of induction"? Psychological Science, 19(6), 585–592.
-Soderstrom, N. C., & Bjork, R. A. (2015). Learning versus performance: An integrative review. Perspectives on Psychological Science.
+The test suite covers the parser, guard rails, queue invariants, and CLI/web wiring; it makes no live API calls. For a live smoke test, create a study directory under `/tmp`, copy a `.env` with your key into it, and run a sync.

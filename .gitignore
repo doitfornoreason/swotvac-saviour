@@ -13,3 +13,5 @@ wheels/
 *.db
 uploads/
 .env
+samples/
+.pytest_cache/

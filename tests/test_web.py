@@ -16,7 +16,6 @@ from swotvac_saviour.sync import SyncResult
 from swotvac_saviour.web import create_app
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-EXERCISES = REPO_ROOT / "samples" / "exercises.pdf"
 
 
 @pytest.fixture
@@ -106,7 +105,7 @@ def test_sync_runs_and_renders_dashboard(client):
         # sync_directory returns immediately, so this completes near-instantly).
         # The poll stays inside the patch context: the thread only starts after
         # the response returns, so an exited mock would fall through to the
-        # real sync_directory and hang on samples/.
+        # real sync_directory and hang on the sync target directory.
         for _ in range(50):
             if client.app.state.sync_job["done"]:
                 break
