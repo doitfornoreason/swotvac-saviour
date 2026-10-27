@@ -25,8 +25,24 @@
   --control: 2.5rem;
 }
 
+/* Explicit dark choice beats the OS preference (html[data-theme="dark"]). */
+:root[data-theme="dark"] {
+  --color-paper: #1a1a1c;
+  --color-surface: #232326;
+  --color-ink: #e8e6e3;
+  --color-ink-muted: #8e8e93;
+  --color-line: #343437;
+  --color-line-strong: #4a4a4f;
+  --color-accent: #6b9ab5;
+  --color-accent-hover: #85b0cb;
+  --color-accent-soft: #24333d;
+  --color-gold: #d4b429;
+}
+
+/* OS preference still applies when the user hasn't picked a theme; an
+   explicit light choice excludes this block. */
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme="light"]) {
     --color-paper: #1a1a1c;
     --color-surface: #232326;
     --color-ink: #e8e6e3;
@@ -409,11 +425,11 @@ body.play main {
   color: inherit;
 }
 
-/* Browse: per-document play toggles. */
+/* Browse: queue sources — tag filter + bulk play selection. */
 .queue-sources {
   margin: 1.5rem 0;
   padding: 0.8rem 1rem;
-  border: 1px solid var(--line, #ddd);
+  border: 1px solid var(--color-line);
   border-radius: 8px;
 }
 .queue-sources h2 {
@@ -422,9 +438,67 @@ body.play main {
   letter-spacing: 0.06em;
   margin: 0 0 0.4em;
 }
-.queue-sources .doc-play {
+.doc-tag-filter {
+  display: flex;
+  gap: var(--space-2);
+  align-items: end;
+  margin: 0 0 0.7rem;
+}
+.doc-tag-filter label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  font-size: 0.85rem;
+  color: var(--color-ink-muted);
+}
+.doc-play-form .doc-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0.15rem 0;
+}
+.doc-play-form .doc-row .check {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  min-width: 0;
+  cursor: pointer;
+}
+.doc-play-form .doc-row .doc-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.doc-play-form .save-row { margin: 0.7rem 0 0; }
+/* hidden resync forms: their buttons are associated via the form attribute */
+.resync-form { display: none; }
+
+/* Theme toggle: show the mode you'd switch to (moon in light, sun in dark). */
+.theme-btn {
   display: inline-flex;
   align-items: center;
-  gap: 0.25rem;
-  margin: 0.15rem 0.8rem 0.15rem 0;
+  justify-content: center;
+  width: 2rem;
+  min-height: 2rem;
+  padding: 0;
+  border: 1px solid var(--color-line-strong);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--color-ink-muted);
+  cursor: pointer;
+}
+.theme-btn:hover {
+  color: var(--color-accent);
+  background: var(--color-accent-soft);
+  border-color: var(--color-accent);
+}
+.theme-btn svg { display: block; }
+.theme-btn .icon-moon { display: inline; }
+.theme-btn .icon-sun { display: none; }
+[data-theme="dark"] .theme-btn .icon-sun { display: inline; }
+[data-theme="dark"] .theme-btn .icon-moon { display: none; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .theme-btn .icon-sun { display: inline; }
+  :root:not([data-theme="light"]) .theme-btn .icon-moon { display: none; }
 }

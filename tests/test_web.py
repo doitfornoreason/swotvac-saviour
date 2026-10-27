@@ -320,6 +320,112 @@ def test_browse_filter_attempted_unmarked(client, conn):
     assert "Exercise 1.3." not in r.text  # not attempted
 
 
+# --- documents play selection ---------------------------------------------------
+
+def _seed_two_docs(conn):
+    """Two documents under different subject tags."""
+    doc1, _ = _seed_document(conn, tag_name="Analysis", n=1)
+    doc2, _ = _seed_document(conn, tag_name="Algebra", n=1)
+    return doc1, doc2
+
+
+def test_documents_play_bulk_saves_selection(client, conn):
+    conn2 = db.connect(str(client.app.state.db_path))
+    db.init_db(conn2)
+    doc1, doc2 = _seed_two_docs(conn2)
+    conn2.close()
+    r = client.post(
+        "/documents/play",
+        data={"play": [str(doc1)], "all": [str(doc1), str(doc2)]},
+        follow_redirects=False,
+    )
+    assert r.status_code == 303
+    assert r.headers["location"].startswith("/browse")
+    conn2 = db.connect(str(client.app.state.db_path))
+    docs = {d["id"]: d for d in db.list_documents(conn2)}
+    conn2.close()
+    assert docs[doc1]["play_enabled"] is True
+    assert docs[doc2]["play_enabled"] is False
+
+
+def test_documents_play_htmx_returns_partial(client, conn):
+    conn2 = db.connect(str(client.app.state.db_path))
+    db.init_db(conn2)
+    doc1, doc2 = _seed_two_docs(conn2)
+    conn2.close()
+    r = client.post(
+        "/documents/play",
+        data={"play": [str(doc2)], "all": [str(doc1), str(doc2)]},
+        headers={"HX-Request": "true"},
+    )
+    assert r.status_code == 200
+    assert 'id="queue-sources"' in r.text
+    # re-rendered checkboxes reflect the saved state
+    assert f'name="play" value="{doc1}"' in r.text
+    assert f'name="play" value="{doc2}" checked' in r.text
+
+
+def test_documents_play_tag_filter_hides_others(client, conn):
+    conn2 = db.connect(str(client.app.state.db_path))
+    db.init_db(conn2)
+    doc1, doc2 = _seed_two_docs(conn2)
+    tag_id = db.tag_id(conn2, "Analysis")
+    conn2.close()
+    # doc2 is not visible under the Analysis filter: its hidden field is absent
+    r = client.post(
+        "/documents/play",
+        data={"play": [], "all": [str(doc1)], "doc_tag": str(tag_id)},
+        follow_redirects=False,
+    )
+    assert r.status_code == 303
+    assert "doc_tag=" in r.headers["location"]
+    conn2 = db.connect(str(client.app.state.db_path))
+    docs = {d["id"]: d for d in db.list_documents(conn2)}
+    conn2.close()
+    assert docs[doc1]["play_enabled"] is False
+    assert docs[doc2]["play_enabled"] is True
+
+
+def test_documents_play_ignores_unknown_ids(client, conn):
+    conn2 = db.connect(str(client.app.state.db_path))
+    db.init_db(conn2)
+    doc1, _ = _seed_two_docs(conn2)
+    conn2.close()
+    r = client.post(
+        "/documents/play",
+        data={"play": ["999"], "all": [str(doc1)]},
+        follow_redirects=False,
+    )
+    assert r.status_code == 303
+    conn2 = db.connect(str(client.app.state.db_path))
+    docs = {d["id"]: d for d in db.list_documents(conn2)}
+    conn2.close()
+    assert docs[doc1]["play_enabled"] is False
+
+
+def test_browse_doc_tag_filters_queue_sources(client, conn):
+    conn2 = db.connect(str(client.app.state.db_path))
+    db.init_db(conn2)
+    doc1, doc2 = _seed_two_docs(conn2)
+    tag_id = db.tag_id(conn2, "Algebra")
+    conn2.close()
+    r = client.get(f"/browse?doc_tag={tag_id}")
+    assert r.status_code == 200
+    assert f'name="all" value="{doc2}"' in r.text
+    assert f'name="all" value="{doc1}"' not in r.text
+
+
+def test_browse_doc_tag_unknown_falls_back_to_all(client, conn):
+    conn2 = db.connect(str(client.app.state.db_path))
+    db.init_db(conn2)
+    doc1, doc2 = _seed_two_docs(conn2)
+    conn2.close()
+    r = client.get("/browse?doc_tag=999")
+    assert r.status_code == 200
+    assert f'name="all" value="{doc1}"' in r.text
+    assert f'name="all" value="{doc2}"' in r.text
+
+
 # --- question view --------------------------------------------------------------
 
 def test_question_view_renders_details(client, conn):

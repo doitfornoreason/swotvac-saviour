@@ -33,6 +33,18 @@ templates.env.globals["static_v"] = _static_v
 STYLES = ("exercise", "number")
 
 
+def _browse_url(filters: dict, doc_tag: int = 0) -> str:
+    """/browse with the active question filters and doc_tag preserved."""
+    params = [
+        f"{key}={filters[key]}"
+        for key in ("tag", "doc", "flagged", "unmarked")
+        if filters.get(key)
+    ]
+    if doc_tag:
+        params.append(f"doc_tag={doc_tag}")
+    return "/browse" + ("?" + "&".join(params) if params else "")
+
+
 def create_app(db_path: str | Path, study_dir: str | Path | None = None) -> FastAPI:
     """Build the app against ``db_path``. ``study_dir`` defaults the sync form."""
     from contextlib import asynccontextmanager
@@ -349,6 +361,7 @@ def create_app(db_path: str | Path, study_dir: str | Path | None = None) -> Fast
         doc: int = 0,
         flagged: int = 0,
         unmarked: int = 0,
+        doc_tag: int = 0,
     ):
         questions = db.browse_questions(
             conn,
@@ -359,32 +372,87 @@ def create_app(db_path: str | Path, study_dir: str | Path | None = None) -> Fast
         )
         for q in questions:
             q["body_html"] = normalise.render_body(q["body_latex"])
+        documents = db.list_documents(conn)
+        doc_sources = _filter_sources(conn, documents, doc_tag)
+        filters = {"tag": tag, "doc": doc, "flagged": flagged, "unmarked": unmarked}
+        if request.headers.get("HX-Request") == "true":
+            # htmx tag-filter change: re-render just the queue-sources section
+            return _queue_sources_partial(request, conn, doc_tag, filters)
         return render(
             request,
             "browse.html",
             {
                 "questions": questions,
                 "tag_options": db.tag_options(conn),
-                "documents": db.list_documents(conn),
-                "filters": {"tag": tag, "doc": doc, "flagged": flagged, "unmarked": unmarked},
+                "documents": documents,
+                "doc_sources": doc_sources,
+                "doc_tag": doc_tag,
+                "filters": filters,
             },
         )
 
     # --- documents --------------------------------------------------------------
-    @app.post("/documents/{doc_id}/play")
-    def document_play(
-        request: Request,
-        doc_id: int,
-        value: int = Form(...),
-        next_url: str = Form("/browse", alias="next"),
-        conn=Depends(get_db),
+    def _filter_sources(
+        conn: sqlite3.Connection, documents: list[dict], doc_tag: int
+    ) -> list[dict]:
+        """Queue-source documents carrying a tag, or all when doc_tag = 0."""
+        if not doc_tag:
+            return documents
+        tag_name = next(
+            (t["name"] for t in db.tag_options(conn) if t["id"] == doc_tag), None
+        )
+        if tag_name is None:  # unknown tag id: fall back to showing everything
+            return documents
+        return [d for d in documents if tag_name in d["tags"]]
+
+    def _queue_sources_partial(
+        request: Request, conn: sqlite3.Connection,
+        doc_tag: int, filters: dict,
     ):
-        if value not in (0, 1):
-            raise HTTPException(status_code=400, detail="bad play toggle")
-        if doc_id not in {d["id"] for d in db.list_documents(conn)}:
-            raise HTTPException(status_code=404, detail="no such document")
-        db.set_document_play(conn, doc_id, enabled=bool(value))
-        return RedirectResponse(next_url or "/browse", status_code=303)
+        documents = _filter_sources(conn, db.list_documents(conn), doc_tag)
+        return templates.TemplateResponse(
+            request,
+            "queue_sources.html",
+            {
+                "doc_sources": documents,
+                "doc_tag": doc_tag,
+                "filters": filters,
+                "tag_options": db.tag_options(conn),
+            },
+        )
+
+    @app.post("/documents/play")
+    def documents_play(
+        request: Request,
+        conn=Depends(get_db),
+        play: list[int] = Form([]),
+        visible: list[int] = Form([], alias="all"),
+        doc_tag: int = Form(0),
+        tag: int = Form(0),
+        doc: int = Form(0),
+        flagged: int = Form(0),
+        unmarked: int = Form(0),
+    ):
+        """Bulk play toggles from the browse queue-sources list.
+
+        ``play`` carries the checked document ids; ``all`` every document
+        visible in the list (its unchecked members are disabled). Documents
+        hidden by the tag filter are absent from ``all`` and stay untouched.
+        """
+        docs = {d["id"]: d for d in db.list_documents(conn)}
+        wanted = {i for i in play if i in docs}
+        shown = {i for i in visible if i in docs}
+        for doc_id in shown:
+            enabled = doc_id in wanted
+            if docs[doc_id]["play_enabled"] != enabled:  # skip no-op reshuffles
+                db.set_document_play(conn, doc_id, enabled=enabled)
+        filters = {"tag": tag, "doc": doc, "flagged": flagged, "unmarked": unmarked}
+        if request.headers.get("HX-Request") == "true":
+            # htmx: swap just the queue-sources section, no reload or scroll jump
+            return _queue_sources_partial(request, conn, doc_tag, filters)
+        return RedirectResponse(
+            _browse_url(filters, doc_tag) + "#queue-sources", status_code=303
+        )
 
     @app.post("/documents/{doc_id}/resync")
     def document_resync(

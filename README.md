@@ -95,6 +95,10 @@ The CLI takes the same options as the web form. Omitting `--db` targets `<direct
 
 Each question shows its body (LaTeX rendered via KaTeX), source PDF page, and verbatim hints from the original document; the LLM never invents hints. Controls: **Attempted**, **Marked**, **Flagged**, all reversible (marked implies attempted). The queue order is stable; **Reshuffle** reorders the current and future questions only. When the queue is exhausted, flagged and marked questions are re-queued on demand. The small red reset button (bottom-left) un-answers every queue row so you can replay the whole set from the top; attempt/mark/flag states are kept.
 
+### Choosing documents
+
+The Browse page's **Queue sources** section controls which documents feed the play queue. Unchecked documents are hidden from the queue; tick your choices, then press **Save** to apply them all at once (no page refresh — the queue updates in place). Use the **Filter by tag** dropdown to narrow the list to one subject before saving; the filter is only a view, hidden documents are never touched. Documents are listed newest-first, and the toggle is only shown for documents that have parsed questions.
+
 ## Other commands
 
 - `parse <pdf>`: split a PDF into `questions.json` with the deterministic parser alone, no LLM call.

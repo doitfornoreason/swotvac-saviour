@@ -109,3 +109,26 @@ def test_set_document_play_removes_and_restores(conn):
     # all three were unanswered, so all return to the tail
     assert conn.execute("SELECT COUNT(*) FROM queue").fetchone()[0] == 3
     assert db.list_documents(conn)[0]["play_enabled"] is True
+
+
+def test_list_documents_newest_first(conn):
+    import swotvac_saviour.db as db
+
+    old = db.insert_document(conn, "old.pdf", "sha-old", "/tmp/old.pdf")
+    new = db.insert_document(conn, "new.pdf", "sha-new", "/tmp/new.pdf")
+    conn.execute(
+        "UPDATE documents SET uploaded_at = '2020-01-01 00:00:00' WHERE id = ?",
+        (old,),
+    )
+    conn.commit()
+    assert [d["id"] for d in db.list_documents(conn)] == [new, old]
+
+
+def test_list_documents_tiebreaks_by_id_desc(conn):
+    import swotvac_saviour.db as db
+
+    # same-second uploads (one sync batch): newest id wins
+    first = db.insert_document(conn, "a.pdf", "sha-a", "/tmp/a.pdf")
+    second = db.insert_document(conn, "b.pdf", "sha-b", "/tmp/b.pdf")
+    conn.commit()
+    assert [d["id"] for d in db.list_documents(conn)] == [second, first]

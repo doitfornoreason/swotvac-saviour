@@ -33,24 +33,7 @@
 
 <p class="notice">{{ questions | length }} question{{ "s" if questions | length != 1 }}</p>
 
-<section class="queue-sources">
-  <h2>Queue sources</h2>
-  <p class="notice">Unchecked documents are hidden from the play queue; checking one re-adds its questions.</p>
-  {% for d in documents %}
-  <span class="doc-play">
-    <form method="post" action="/documents/{{ d.id }}/play" class="action-form">
-      <input type="hidden" name="value" value="{{ 0 if d.play_enabled else 1 }}">
-      <label class="check">
-        <input type="checkbox" {% if d.play_enabled %}checked{% endif %} onchange="this.form.submit()">
-        {{ d.filename }} <span class="chip">{{ d.question_count }}</span>
-      </label>
-    </form>
-    <form method="post" action="/documents/{{ d.id }}/resync" class="action-form">
-      <button type="submit" class="btn-ghost state-btn" title="Wipe and re-transcribe this document">re-sync</button>
-    </form>
-  </span>
-  {% endfor %}
-</section>
+{% include "queue_sources.html" %}
 
 {% for q in questions %}
 <article class="browse-item">

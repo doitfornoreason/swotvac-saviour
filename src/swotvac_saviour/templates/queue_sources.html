@@ -1,0 +1,55 @@
+{# Queue sources: bulk play selection with a tag filter. Rendered standalone
+   for htmx swaps (POST /documents/play, GET /browse with HX-Request) and
+   included by browse.html. #}
+<section class="queue-sources" id="queue-sources">
+  <h2>Queue sources</h2>
+  <p class="notice">Unchecked documents are hidden from the play queue; tick your choices, press Save to apply them all at once.</p>
+
+  <form method="get" action="/browse" class="doc-tag-filter"
+        hx-get="/browse" hx-target="#queue-sources" hx-swap="outerHTML"
+        hx-trigger="change from:select">
+    <label>
+      <span>Filter by tag</span>
+      <select name="doc_tag">
+        <option value="0">all</option>
+        {% for t in tag_options %}
+        <option value="{{ t.id }}" {% if doc_tag == t.id %}selected{% endif %}>{{ t.name }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <input type="hidden" name="tag" value="{{ filters.tag }}">
+    <input type="hidden" name="doc" value="{{ filters.doc }}">
+    <input type="hidden" name="flagged" value="{{ filters.flagged }}">
+    <input type="hidden" name="unmarked" value="{{ filters.unmarked }}">
+    <noscript><button type="submit" class="btn-ghost">Apply</button></noscript>
+  </form>
+
+  <form method="post" action="/documents/play" class="doc-play-form"
+        hx-post="/documents/play" hx-target="#queue-sources" hx-swap="outerHTML">
+    <input type="hidden" name="doc_tag" value="{{ doc_tag }}">
+    <input type="hidden" name="tag" value="{{ filters.tag }}">
+    <input type="hidden" name="doc" value="{{ filters.doc }}">
+    <input type="hidden" name="flagged" value="{{ filters.flagged }}">
+    <input type="hidden" name="unmarked" value="{{ filters.unmarked }}">
+    {% for d in doc_sources %}<input type="hidden" name="all" value="{{ d.id }}">{% endfor %}
+    {% for d in doc_sources %}
+    <div class="doc-row">
+      <label class="check">
+        <input type="checkbox" name="play" value="{{ d.id }}" {% if d.play_enabled %}checked{% endif %}>
+        {{ d.filename }} <span class="chip">{{ d.question_count }}</span>
+      </label>
+      <button type="submit" form="resync-{{ d.id }}" class="btn-ghost state-btn" title="Wipe and re-transcribe this document">re-sync</button>
+    </div>
+    {% else %}
+    <p class="notice">No documents carry this tag.</p>
+    {% endfor %}
+    <p class="save-row"><button type="submit" class="btn-primary">Save</button></p>
+  </form>
+
+  {% for d in doc_sources %}
+  {# hidden resync forms: their buttons live beside the checkboxes (form attr) #}
+  <form method="post" action="/documents/{{ d.id }}/resync" id="resync-{{ d.id }}" class="action-form resync-form">
+    <input type="hidden" name="next" value="{{ '/browse?doc_tag=' ~ doc_tag if doc_tag else '/browse' }}">
+  </form>
+  {% endfor %}
+</section>

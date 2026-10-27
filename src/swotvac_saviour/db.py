@@ -298,7 +298,7 @@ def list_documents(conn: sqlite3.Connection) -> list[dict]:
         SELECT d.id, d.filename, d.sha256, d.uploaded_at,
                (SELECT COUNT(*) FROM questions q WHERE q.document_id = d.id),
                d.play_enabled, d.original_path
-        FROM documents d ORDER BY d.id
+        FROM documents d ORDER BY d.uploaded_at DESC, d.id DESC
         """
     ).fetchall()
     # one join pass for all tags instead of N+1 queries
